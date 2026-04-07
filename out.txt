@@ -1,0 +1,25 @@
+=== compare output ===
+clamped features: 18493=30.0, 18581=80.0
+
+--- prompt ---
+I like to drink water.
+
+--- normal (no clamps) ---
+ It makes me nervous, and I start making my decision.
+
+"About water?"
+
+But I don't think I need to.
+
+There is no water, only chai, and a great soup here.
+
+Because it's cloudy, when I can't drink much water I feel gross.
+
+Funny, why doesn't Tom use "water" at all, and only when I'm out of my house? How come I'm pretty often wearing a shirt with that no-frills line.
+
+Apparently when he would feel like walking through a crowd he would say, "They are playing a symphony," and see his friends who are playing in there.
+
+Ah, well, the most obvious
+
+--- steered (2 clamp(s)) ---
+ While I've been a double and I go big – this tasting takes our 6 suns with me for a Christmas stout. A robust offering, this offering is American house from our wild and old, with a visit from a Florida called Trip Heaven. This was just a Christmas beer, at this brand you wort from took in aging wrapped with session honey, and it was opened in Balty, This was we went to roll our own took alongside Austin, Breeland. This was pulled to us today with a 6: and we had it in oak infused body, ro.der was baked, the cherry beer blended and wiets was topped with an off I spak starter. It's 3 on the main while we finish. Stagger
