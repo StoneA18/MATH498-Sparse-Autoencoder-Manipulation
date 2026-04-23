@@ -1,127 +1,79 @@
 """
-explore.py — Interactive REPL for exploring GPT-2 features and steering.
+explore.py — Interactive REPL for exploring LLM features and steering.
 
 Run with:  python explore.py
 
-Commands
---------
-  analyze <text>          Show top 10 features activated by <text>
-  analyze -f <path>       Same, but read the text from a file
-  feature <id> <text>     Show per-token activation of feature <id> for <text>
-  feature <id> -f <path>  Same, but read the text from a file
-  clamp <id> [value]      Force feature <id> to <value> during generation (default: 20)
-  unclamp <id>            Remove clamp on feature <id>
-  clear                   Remove all clamps
-  list                    Show currently clamped features
-  generate <prompt>            Generate text with current clamps active
-  generate -f <path>           Same, but read the prompt from a file
-  generate ... -o <path>       Write generated output to a file
-  compare <prompt>             Generate twice — once normal, once with clamps — side by side
-  compare -f <path>            Same, but read the prompt from a file
-  compare ... -o <path>        Write both outputs to a file
-  rpt                     Repeat the last command
-  help                    Show this message
-  quit                    Exit
-
-Suggested workflow
-------------------
-  1. analyze <some topic>      — find features that activate for your topic
-  2. feature <id> <text>       — verify a feature fires where you expect
-  3. Look it up: https://neuronpedia.org/<neuronpedia_id>/<id>
-  4. clamp <id> 25             — force that feature on
-  5. generate <prompt>         — see the effect on generation
-  6. compare <prompt>          — see normal vs. steered side by side
-  7. clear                     — reset and try something different
+Type 'help' inside the REPL for a full command list.
+Type 'help <command>' for detailed usage of a specific command.
 """
 
 import sys
 import torch
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.columns import Columns
-from rich.text import Text
 
 from feature_steering import (
     load_model_and_sae,
+    load_sae_from_name,
     format_prompt,
     top_features_for_text,
     token_feature_activations,
+    generate_exploration_html,
     FeatureSteerer,
+    train_custom_sae,
     MODELS,
     DEFAULT_MODEL,
 )
 
-console = Console()
+
+def p(msg=""):
+    print(msg)
 
 
 def npedia(feature_id: int, state: dict) -> str:
-    """Format a Neuronpedia URL for a given feature using the active model's ID."""
     base = f"https://neuronpedia.org/{state['config'].neuronpedia_id}"
     return f"{base}/{feature_id}"
 
 
 # ---------------------------------------------------------------------------
-# Shared helper
+# Shared helpers
 # ---------------------------------------------------------------------------
 
-def load_text(arg: str, usage_hint: str) -> tuple[str, str] | None:
-    """
-    Parse a text-or-file argument and return (text, source_label).
-
-    If arg starts with "-f " the remainder is treated as a filepath and the
-    file's contents are returned. Otherwise arg itself is the text.
-
-    Returns None and prints an error if the argument is empty or the file
-    can't be read.  `usage_hint` is shown in the empty-argument error message.
-    """
+def load_text(arg: str, usage_hint: str):
     arg = arg.strip()
 
     if arg.startswith("-f "):
         filepath = arg[3:].strip()
         if not filepath:
-            console.print(f"[red]{usage_hint}[/red]")
+            print(f"Error: {usage_hint}")
             return None
         try:
             with open(filepath, "r", encoding="utf-8") as fh:
                 text = fh.read()
         except FileNotFoundError:
-            console.print(f"[red]File not found: {filepath!r}[/red]")
+            print(f"Error: file not found: {filepath!r}")
             return None
         except OSError as e:
-            console.print(f"[red]Could not read file: {e}[/red]")
+            print(f"Error: could not read file: {e}")
             return None
-        label = f"[dim](from file: {filepath})[/dim]"
+        label = f"(from file: {filepath})"
     else:
         text = arg
         label = ""
 
     if not text.strip():
-        console.print(f"[red]{usage_hint}[/red]")
+        print(f"Error: {usage_hint}")
         return None
 
     return text, label
 
 
-def extract_flag(args: str, flag: str) -> tuple[str, str | None]:
-    """
-    Find and remove a `flag <value>` pair from anywhere in `args`.
-
-    Returns (remaining_args, value) if found, or (args, None) if not present.
-
-    Example:
-        extract_flag("hello world -o out.txt", "-o")
-        => ("hello world", "out.txt")
-    """
+def extract_flag(args: str, flag: str):
     tokens = args.split()
     if flag not in tokens:
         return args, None
 
     idx = tokens.index(flag)
     if idx + 1 >= len(tokens):
-        # Flag present but no value after it.
-        console.print(f"[red]{flag} requires a filepath argument[/red]")
-        # Return the args unchanged so the caller can still show usage.
+        print(f"Error: {flag} requires a value argument")
         return args, None
 
     value = tokens[idx + 1]
@@ -129,14 +81,47 @@ def extract_flag(args: str, flag: str) -> tuple[str, str | None]:
     return " ".join(remaining_tokens), value
 
 
+def _fmt_entry(entry: tuple) -> str:
+    """Format a clamp entry tuple as a human-readable string."""
+    op = entry[0]
+    if op == 'cond_dist':
+        _, prob, dist, *params = entry
+        param_str = " ".join(str(p) for p in params)
+        return f"cond_dist  p={prob}  {dist}({param_str})"
+    return f"{op:<8} {entry[1]}"
+
+
+def _restore_clamp(steerer, feat_id: int, entry: tuple):
+    """Re-apply a clamp entry to the steerer (used in compare after clearing)."""
+    op = entry[0]
+    if op == 'clamp':
+        steerer.clamp(feat_id, entry[1])
+    elif op == 'add':
+        steerer.add(feat_id, entry[1])
+    elif op == 'scale':
+        steerer.scale(feat_id, entry[1])
+    elif op == 'cond_dist':
+        _, prob, dist, *params = entry
+        steerer.cond_dist(feat_id, prob, dist, *params)
+
+
 def write_output(filepath: str, content: str):
-    """Write `content` to `filepath` (UTF-8) and print a confirmation."""
     try:
         with open(filepath, "w", encoding="utf-8") as fh:
             fh.write(content)
-        console.print(f"[green]Output written to {filepath!r}[/green]")
+        print(f"Output written to {filepath!r}")
     except OSError as e:
-        console.print(f"[red]Could not write to {filepath!r}: {e}[/red]")
+        print(f"Error: could not write to {filepath!r}: {e}")
+
+
+def _parse_n_flag(args: str, state: dict):
+    args, n_str = extract_flag(args, "-n")
+    if n_str is not None:
+        try:
+            return args, int(n_str)
+        except ValueError:
+            print(f"Error: -n requires an integer, got {n_str!r} — using model default")
+    return args, state["config"].default_max_tokens
 
 
 # ---------------------------------------------------------------------------
@@ -144,59 +129,49 @@ def write_output(filepath: str, content: str):
 # ---------------------------------------------------------------------------
 
 def cmd_analyze(args: str, state: dict):
-    result = load_text(
-        args,
-        "Usage: analyze <text>\n       analyze -f <filepath>",
-    )
+    result = load_text(args, "Usage: analyze <text>\n       analyze -f <filepath>")
     if result is None:
         return
     text, label = result
 
     preview = text[:80].replace("\n", " ") + ("..." if len(text) > 80 else "")
-    console.print(f"\nAnalyzing: [italic]{preview!r}[/italic] {label}")
+    if label:
+        print(label)
+    print(f"Analyzing: {preview!r}")
+
     results = top_features_for_text(
         text, state["model"], state["sae"], state["config"].hook_point,
         k=10, device=state["device"],
     )
 
-    table = Table(title=f'Top features for "{preview}"', show_lines=True)
-    table.add_column("Rank",       style="dim",  width=6)
-    table.add_column("Feature ID", style="cyan", width=12)
-    table.add_column("Activation", style="green", width=12)
-    table.add_column("Neuronpedia link", style="blue")
-
+    print(f"\nTop features for: {preview!r}")
+    print(f"  {'Rank':<6} {'Feature ID':<12} {'Activation':<12} Neuronpedia")
+    print(f"  {'-'*6} {'-'*12} {'-'*12} {'-'*40}")
     for rank, (feat_id, val) in enumerate(results, 1):
-        table.add_row(str(rank), str(feat_id), f"{val:.3f}", npedia(feat_id, state))
-
-    console.print(table)
-    console.print("[dim]Look up feature IDs at Neuronpedia to see human-written interpretations.[/dim]\n")
+        print(f"  {rank:<6} {feat_id:<12} {val:<12.3f} {npedia(feat_id, state)}")
+    print()
 
 
 def cmd_feature(args: str, state: dict):
-    """Show how strongly one feature activates at each token position."""
-    # Split off the feature ID first; the rest is either "-f <path>" or inline text.
     parts = args.strip().split(None, 1)
     if len(parts) < 2:
-        console.print("[red]Usage: feature <id> <text>[/red]")
-        console.print("[red]       feature <id> -f <filepath>[/red]")
+        print("Usage: feature <id> <text>")
+        print("       feature <id> -f <filepath>")
         return
 
     try:
         feat_id = int(parts[0])
     except ValueError:
-        console.print(f"[red]Feature ID must be an integer, got: {parts[0]!r}[/red]")
+        print(f"Error: feature ID must be an integer, got: {parts[0]!r}")
         return
 
-    result = load_text(
-        parts[1],
-        "Usage: feature <id> <text>\n       feature <id> -f <filepath>",
-    )
+    result = load_text(parts[1], "Usage: feature <id> <text>\n       feature <id> -f <filepath>")
     if result is None:
         return
     text, label = result
 
     if label:
-        console.print(f"Text source: {label}")
+        print(label)
 
     results = token_feature_activations(
         text, feat_id, state["model"], state["sae"],
@@ -205,110 +180,181 @@ def cmd_feature(args: str, state: dict):
 
     max_val = max((v for _, v in results), default=1.0)
 
-    table = Table(title=f"Feature {feat_id} — per-token activation", show_lines=True)
-    table.add_column("Pos",        style="dim",  width=5)
-    table.add_column("Token",      style="cyan", width=16)
-    table.add_column("Activation", style="green", width=12)
-    table.add_column("Intensity",  width=25)
-
+    print(f"\nFeature {feat_id} — per-token activation")
+    print(f"  {'Pos':<5} {'Token':<18} {'Activation':<12} Intensity")
+    print(f"  {'-'*5} {'-'*18} {'-'*12} {'-'*20}")
     for i, (token, val) in enumerate(results):
-        # Simple ASCII bar proportional to this token's activation.
         bar_len = int((val / max(max_val, 1e-6)) * 20) if val > 0 else 0
-        bar = "█" * bar_len
-        if val > max_val * 0.7:
-            bar_str = f"[bold green]{bar}[/bold green]"
-        elif val > 0:
-            bar_str = f"[green]{bar}[/green]"
-        else:
-            bar_str = "[dim]·[/dim]"
+        bar = "#" * bar_len if val > 0 else "."
+        print(f"  {i:<5} {repr(token):<18} {val:<12.4f} {bar}")
 
-        table.add_row(str(i), repr(token), f"{val:.4f}", bar_str)
-
-    console.print(table)
-    console.print(f"[dim]Neuronpedia: {npedia(feat_id, state)}[/dim]\n")
+    print(f"\nNeuronpedia: {npedia(feat_id, state)}")
+    print()
 
 
 def cmd_clamp(args: str, state: dict):
-    """Add or update a feature clamp."""
     parts = args.strip().split()
     if not parts:
-        console.print("[red]Usage: clamp <feature_id> [value][/red]")
+        print("Usage: clamp <feature_id> [value]")
         return
 
     try:
         feat_id = int(parts[0])
     except ValueError:
-        console.print(f"[red]Feature ID must be an integer, got: {parts[0]!r}[/red]")
+        print(f"Error: feature ID must be an integer, got: {parts[0]!r}")
         return
 
-    # Default value: 20.0 — a strong but not extreme activation.
     value = 20.0
     if len(parts) > 1:
         try:
             value = float(parts[1])
         except ValueError:
-            console.print(f"[red]Value must be a number, got: {parts[1]!r}[/red]")
+            print(f"Error: value must be a number, got: {parts[1]!r}")
             return
 
     state["steerer"].clamp(feat_id, value)
-    console.print(f"[green]Clamped feature {feat_id} = {value}[/green]")
-    console.print(f"[dim]  {npedia(feat_id, state)}[/dim]\n")
+    print(f"Clamped feature {feat_id} = {value}")
+    print(f"  {npedia(feat_id, state)}")
+    print()
 
 
-def cmd_unclamp(args: str, state: dict):
-    """Remove a single feature clamp."""
+def cmd_add(args: str, state: dict):
     parts = args.strip().split()
     if not parts:
-        console.print("[red]Usage: unclamp <feature_id>[/red]")
+        print("Usage: add <feature_id> [value]")
         return
 
     try:
         feat_id = int(parts[0])
     except ValueError:
-        console.print(f"[red]Feature ID must be an integer, got: {parts[0]!r}[/red]")
+        print(f"Error: feature ID must be an integer, got: {parts[0]!r}")
+        return
+
+    value = 10.0
+    if len(parts) > 1:
+        try:
+            value = float(parts[1])
+        except ValueError:
+            print(f"Error: value must be a number, got: {parts[1]!r}")
+            return
+
+    state["steerer"].add(feat_id, value)
+    print(f"Adding {value} to feature {feat_id}")
+    print(f"  {npedia(feat_id, state)}")
+    print()
+
+
+def cmd_scale(args: str, state: dict):
+    parts = args.strip().split()
+    if not parts:
+        print("Usage: scale <feature_id> [factor]")
+        return
+
+    try:
+        feat_id = int(parts[0])
+    except ValueError:
+        print(f"Error: feature ID must be an integer, got: {parts[0]!r}")
+        return
+
+    factor = 2.0
+    if len(parts) > 1:
+        try:
+            factor = float(parts[1])
+        except ValueError:
+            print(f"Error: factor must be a number, got: {parts[1]!r}")
+            return
+
+    state["steerer"].scale(feat_id, factor)
+    print(f"Scaling feature {feat_id} by {factor}")
+    print(f"  {npedia(feat_id, state)}")
+    print()
+
+
+def cmd_cond_dist(args: str, state: dict):
+    # Expected: <feature_id> <prob> <dist> <param1> [<param2> ...]
+    # e.g.      18493 0.5 normal 40 10
+    parts = args.strip().split()
+    usage = (
+        "Usage: cond_dist <id> <prob> normal <mean> <std>\n"
+        "       cond_dist <id> <prob> uniform <low> <high>"
+    )
+
+    if len(parts) < 4:
+        print(usage)
+        return
+
+    try:
+        feat_id = int(parts[0])
+    except ValueError:
+        print(f"Error: feature ID must be an integer, got: {parts[0]!r}")
+        return
+
+    try:
+        prob = float(parts[1])
+        if not (0.0 <= prob <= 1.0):
+            raise ValueError
+    except ValueError:
+        print(f"Error: prob must be a float in [0, 1], got: {parts[1]!r}")
+        return
+
+    dist = parts[2].lower()
+    param_strs = parts[3:]
+
+    try:
+        dist_params = tuple(float(p) for p in param_strs)
+    except ValueError:
+        print(f"Error: distribution parameters must be numbers")
+        return
+
+    try:
+        state["steerer"].cond_dist(feat_id, prob, dist, *dist_params)
+    except ValueError as e:
+        print(f"Error: {e}")
+        return
+
+    param_desc = " ".join(str(p) for p in dist_params)
+    print(f"cond_dist feature {feat_id}: p={prob}  {dist}({param_desc})")
+    print(f"  {npedia(feat_id, state)}")
+    print()
+
+
+def cmd_unclamp(args: str, state: dict):
+    parts = args.strip().split()
+    if not parts:
+        print("Usage: unclamp <feature_id>")
+        return
+
+    try:
+        feat_id = int(parts[0])
+    except ValueError:
+        print(f"Error: feature ID must be an integer, got: {parts[0]!r}")
         return
 
     steerer = state["steerer"]
     if feat_id in steerer.clamped_features:
         steerer.unclamp(feat_id)
-        console.print(f"[yellow]Feature {feat_id} released.[/yellow]\n")
+        print(f"Feature {feat_id} released.")
     else:
-        console.print(f"[dim]Feature {feat_id} was not clamped.[/dim]\n")
+        print(f"Feature {feat_id} was not clamped.")
+    print()
 
 
 def cmd_list(state: dict):
-    """Print the current clamp state."""
     clamps = state["steerer"].list_clamps()
     if not clamps:
-        console.print("[dim]No features currently clamped.[/dim]\n")
+        print("No features currently clamped.")
+        print()
         return
 
-    table = Table(title="Active Feature Clamps", show_lines=True)
-    table.add_column("Feature ID", style="cyan")
-    table.add_column("Value",      style="green")
-    table.add_column("Neuronpedia", style="blue")
-
-    for feat_id, val in sorted(clamps.items()):
-        table.add_row(str(feat_id), f"{val:.1f}", npedia(feat_id, state))
-
-    console.print(table)
-    console.print()
-
-
-def _parse_n_flag(args: str, state: dict) -> tuple[str, int]:
-    """Extract -n <N> from args, returning (remaining_args, max_new_tokens).
-    Falls back to the current model's default_max_tokens if -n is not given."""
-    args, n_str = extract_flag(args, "-n")
-    if n_str is not None:
-        try:
-            return args, int(n_str)
-        except ValueError:
-            console.print(f"[red]-n requires an integer, got {n_str!r} — using model default[/red]")
-    return args, state["config"].default_max_tokens
+    print("Active feature clamps:")
+    print(f"  {'Feature ID':<12} {'Setting':<30} Neuronpedia")
+    print(f"  {'-'*12} {'-'*30} {'-'*40}")
+    for feat_id, entry in sorted(clamps.items()):
+        print(f"  {feat_id:<12} {_fmt_entry(entry):<30} {npedia(feat_id, state)}")
+    print()
 
 
 def cmd_generate(args: str, state: dict):
-    """Generate text from a prompt using the current clamp configuration."""
     args, outpath = extract_flag(args, "-o")
     args, max_new_tokens = _parse_n_flag(args, state)
     result = load_text(
@@ -320,32 +366,23 @@ def cmd_generate(args: str, state: dict):
         return
     prompt, src_label = result
 
-    # For instruction-tuned models, wrap the prompt in the chat format so the
-    # model knows it's a user message and should produce an assistant reply.
     formatted_prompt = format_prompt(prompt, state["config"])
-    if formatted_prompt != prompt:
-        console.print(f"[dim](chat format applied for {state['config'].display_name})[/dim]")
 
     steerer = state["steerer"]
     clamps = steerer.list_clamps()
     status = f"Generating with {len(clamps)} clamped feature(s)..." if clamps else "Generating (no features clamped)..."
-    console.print(
-        f"[bold]{status}[/bold]"
-        + (f" {src_label}" if src_label else "")
-        + f" [dim](max {max_new_tokens} tokens)[/dim]"
-    )
+    if src_label:
+        print(src_label)
+    print(f"{status} (max {max_new_tokens} tokens)")
 
     generated = steerer.generate(formatted_prompt, max_new_tokens=max_new_tokens, verbose=False)
 
-    console.print(Panel(
-        f"[bold blue]Prompt:[/bold blue]\n{prompt}\n\n[bold green]Generated:[/bold green]\n{generated}",
-        title="Output",
-        expand=False,
-    ))
-    console.print()
+    print(f"\nPrompt:    {prompt}")
+    print(f"Generated: {generated}")
+    print()
 
     if outpath:
-        clamp_summary = ", ".join(f"{fid}={val}" for fid, val in sorted(clamps.items())) or "none"
+        clamp_summary = ", ".join(f"{fid} {_fmt_entry(e)}" for fid, e in sorted(clamps.items())) or "none"
         write_output(outpath, (
             f"=== generate output ===\n"
             f"model: {state['config'].display_name}\n"
@@ -357,10 +394,6 @@ def cmd_generate(args: str, state: dict):
 
 
 def cmd_compare(args: str, state: dict):
-    """
-    Generate from the same prompt twice: once normally, once with clamps.
-    Lets you directly compare the effect of your feature clamps.
-    """
     args, outpath = extract_flag(args, "-o")
     args, max_new_tokens = _parse_n_flag(args, state)
     result = load_text(
@@ -373,39 +406,42 @@ def cmd_compare(args: str, state: dict):
     prompt, src_label = result
 
     if src_label:
-        console.print(f"Prompt source: {src_label}")
+        print(src_label)
 
     formatted_prompt = format_prompt(prompt, state["config"])
-    if formatted_prompt != prompt:
-        console.print(f"[dim](chat format applied for {state['config'].display_name})[/dim]")
 
     steerer = state["steerer"]
     clamps = steerer.list_clamps()
     if not clamps:
-        console.print("[yellow]No features clamped — both outputs will be identical.[/yellow]")
-    console.print(f"[dim](max {max_new_tokens} tokens per generation)[/dim]")
+        print("Warning: no features clamped — both outputs will be identical.")
+    print(f"(max {max_new_tokens} tokens per generation)")
 
-    console.print("[bold]Generating normal output...[/bold]")
+    print("Generating normal output...")
     steerer.unclamp_all()
     normal_out = steerer.generate(formatted_prompt, max_new_tokens=max_new_tokens, verbose=False)
 
-    # Restore the clamps.
-    for feat_id, val in clamps.items():
-        steerer.clamp(feat_id, val)
+    for feat_id, entry in clamps.items():
+        _restore_clamp(steerer, feat_id, entry)
 
-    console.print("[bold]Generating steered output...[/bold]")
-    steered_out = steerer.generate(formatted_prompt, max_new_tokens=max_new_tokens, verbose=False)
+    print("Generating steered output...")
+    try:
+        steered_out = steerer.generate(formatted_prompt, max_new_tokens=max_new_tokens, verbose=False)
+        steered_err = None
+    except Exception as e:
+        steered_out = ""
+        steered_err = str(e)
+        print(f"Error: steered generation failed: {e}")
 
-    left  = Panel(f"[bold]Prompt:[/bold]\n{prompt}\n\n[bold]Output:[/bold]\n{normal_out}",
-                  title="Normal (no clamps)", border_style="blue")
-    right = Panel(f"[bold]Prompt:[/bold]\n{prompt}\n\n[bold]Output:[/bold]\n{steered_out}",
-                  title=f"Steered ({len(clamps)} clamp(s))", border_style="green")
-
-    console.print(Columns([left, right], equal=True))
-    console.print()
+    print(f"\nPrompt: {prompt}")
+    print(f"\n--- normal (no clamps) ---")
+    print(normal_out)
+    print(f"\n--- steered ({len(clamps)} clamp(s)) ---")
+    print(steered_out if steered_out else f"(error: {steered_err})")
+    print()
 
     if outpath:
-        clamp_summary = ", ".join(f"{fid}={val}" for fid, val in sorted(clamps.items())) or "none"
+        clamp_summary = ", ".join(f"{fid} {_fmt_entry(e)}" for fid, e in sorted(clamps.items())) or "none"
+        steered_section = steered_out if steered_out else (f"[error: {steered_err}]" if steered_err else "(empty)")
         write_output(outpath, (
             f"=== compare output ===\n"
             f"model: {state['config'].display_name}\n"
@@ -413,55 +449,293 @@ def cmd_compare(args: str, state: dict):
             f"clamped features: {clamp_summary}\n\n"
             f"--- prompt ---\n{prompt}\n\n"
             f"--- normal (no clamps) ---\n{normal_out}\n\n"
-            f"--- steered ({len(clamps)} clamp(s)) ---\n{steered_out}\n"
+            f"--- steered ({len(clamps)} clamp(s)) ---\n{steered_section}\n"
         ))
 
 
-def cmd_models(_args: str, _state: dict):
-    """List all available models."""
-    table = Table(title="Available Models", show_lines=True)
-    table.add_column("Key",         style="cyan",  width=16)
-    table.add_column("Description", style="white")
-    table.add_column("Chat?",       style="green", width=7)
+def cmd_explore(args: str, state: dict):
+    """
+    explore <text>
+    explore -f <filepath> [-topn <n>] [-o <outfile>]
 
+    Generate a self-contained HTML report showing the top-N activated features
+    for each token.  Click any feature cell to see its full activation profile
+    across all tokens.  Only features that appear in the top-N for at least one
+    token are included.
+    """
+    usage = (
+        "Usage: explore <text> [-topn <n>] [-o <outfile>]\n"
+        "       explore -f <filepath> [-topn <n>] [-o <outfile>]"
+    )
+
+    args, outpath = extract_flag(args, "-o")
+    args, topn_str = extract_flag(args, "-topn")
+
+    try:
+        top_n = int(topn_str) if topn_str else 10
+        if top_n < 1:
+            print("Error: -topn must be >= 1")
+            return
+    except ValueError:
+        print(f"Error: -topn must be an integer, got {topn_str!r}")
+        return
+
+    result = load_text(args, usage)
+    if result is None:
+        return
+    text, src_label = result
+
+    if src_label:
+        print(src_label)
+
+    outpath = outpath or "explorationoutput.html"
+
+    preview = text[:60].replace("\n", " ") + ("..." if len(text) > 60 else "")
+    print(f"Running feature exploration on: {preview!r}")
+    print(f"  top_n={top_n}  output={outpath!r}")
+
+    html = generate_exploration_html(
+        text=text,
+        model=state["model"],
+        sae=state["sae"],
+        hook_point=state["config"].hook_point,
+        top_n=top_n,
+        device=state["device"],
+        model_name=state["config"].display_name,
+    )
+
+    write_output(outpath, html)
+    n_tokens = len(state["model"].to_str_tokens(text))
+    print(f"Report written: {n_tokens} tokens, top {top_n} features each.")
+    print()
+
+
+def cmd_load_sae(args: str, state: dict):
+    name = args.strip()
+    if not name:
+        print("Usage: load_sae <name>")
+        print("  <name> is the identifier used with train_sae -o")
+        print()
+        return
+
+    print(f"Loading SAE {name!r}...")
+    try:
+        sae, hook_point = load_sae_from_name(name, device=state["device"])
+    except Exception as e:
+        print(f"Error: {e}")
+        print()
+        return
+
+    import dataclasses
+    state["sae"]     = sae
+    state["config"]  = dataclasses.replace(
+        state["config"],
+        hook_point=hook_point,
+        neuronpedia_id=None,   # custom SAE — neuronpedia links won't apply
+    )
+    state["steerer"] = FeatureSteerer(
+        state["model"], sae, hook_point, device=state["device"]
+    )
+
+    print("Custom SAE active. analyze / feature / clamp / generate all use it now.")
+    print("Note: neuronpedia links will be blank — this SAE has no online listing.")
+    print()
+
+
+def cmd_train_sae(args: str, state: dict):
+    """
+    Parse and dispatch: train_sae <layer> [options...]
+
+    Flags
+    -----
+      -hook  resid_post|resid_pre|mlp_out|attn_out   (default: resid_post)
+      -d     <d_sae>          dictionary size; overrides -e when set
+      -e     <expansion>      d_sae = d_in × expansion  (default: 16)
+      -act   relu|topk        activation function        (default: topk)
+      -k     <int>            active features for topk   (default: 50)
+      -l1    <float>          L1 coefficient for relu    (default: 5e-5)
+      -lr    <float>          learning rate              (default: 2e-4)
+      -tokens <int>           total training tokens      (default: 500000)
+      -bs    <int>            batch size in tokens       (default: 4096)
+      -ctx   <int>            context / sequence length  (default: 128)
+      -ds    <str>            HuggingFace dataset path   (default: NeelNanda/pile-10k)
+      -o     <name>           name for this SAE          (default: sae_<layer>)
+      -wandb                  enable Weights & Biases logging
+    """
+    usage = (
+        "Usage: train_sae <layer> [options]\n"
+        "  -hook resid_post|resid_pre|mlp_out|attn_out\n"
+        "  -d <d_sae>   -e <expansion_factor>\n"
+        "  -act relu|topk   -k <k>   -l1 <coeff>\n"
+        "  -lr <rate>   -tokens <n>   -bs <batch_tokens>   -ctx <seq_len>\n"
+        "  -ds <dataset_path>   -o <name>   -wandb"
+    )
+
+    parts = args.strip().split()
+    if not parts:
+        print(usage)
+        return
+
+    try:
+        layer = int(parts[0])
+    except ValueError:
+        print(f"Error: layer must be an integer, got {parts[0]!r}")
+        return
+
+    # ---- parse remaining flags -----------------------------------------------
+    # Build a mutable token list (skip parts[0] already consumed)
+    tokens = parts[1:]
+
+    def _pop_flag(name: str):
+        """Return value after flag and remove both from tokens, or None."""
+        if name in tokens:
+            idx = tokens.index(name)
+            if idx + 1 >= len(tokens):
+                print(f"Error: {name} requires a value")
+                return None, True   # (value, error)
+            val = tokens[idx + 1]
+            del tokens[idx:idx + 2]
+            return val, False
+        return None, False
+
+    def _pop_bool_flag(name: str) -> bool:
+        if name in tokens:
+            tokens.remove(name)
+            return True
+        return False
+
+    hook_type_str,   err = _pop_flag("-hook");
+    if err: return
+    d_sae_str,       err = _pop_flag("-d");
+    if err: return
+    exp_str,         err = _pop_flag("-e");
+    if err: return
+    act_str,         err = _pop_flag("-act");
+    if err: return
+    k_str,           err = _pop_flag("-k");
+    if err: return
+    l1_str,          err = _pop_flag("-l1");
+    if err: return
+    lr_str,          err = _pop_flag("-lr");
+    if err: return
+    tokens_str,      err = _pop_flag("-tokens");
+    if err: return
+    bs_str,          err = _pop_flag("-bs");
+    if err: return
+    ctx_str,         err = _pop_flag("-ctx");
+    if err: return
+    ds_str,          err = _pop_flag("-ds");
+    if err: return
+    out_str,         err = _pop_flag("-o");
+    if err: return
+    log_wandb             = _pop_bool_flag("-wandb")
+
+    if tokens:
+        print(f"Error: unrecognised arguments: {' '.join(tokens)}")
+        print(usage)
+        return
+
+    # ---- type-check and apply defaults ---------------------------------------
+    hook_type        = hook_type_str or "resid_post"
+    activation_fn    = act_str or "topk"
+    dataset_path     = ds_str or "NeelNanda/pile-10k"
+    sae_name         = out_str or f"sae_{layer}"
+
+    try:
+        expansion_factor = int(exp_str) if exp_str else 16
+        d_sae            = int(d_sae_str) if d_sae_str else None
+        k                = int(k_str) if k_str else 50
+        l1_coefficient   = float(l1_str) if l1_str else 5e-5
+        lr               = float(lr_str) if lr_str else 2e-4
+        training_tokens  = int(tokens_str) if tokens_str else 500_000
+        batch_size       = int(bs_str) if bs_str else 4096
+        context_size     = int(ctx_str) if ctx_str else 128
+    except ValueError as e:
+        print(f"Error: bad numeric argument: {e}")
+        return
+
+    valid_hooks = ("resid_post", "resid_pre", "mlp_out", "attn_out")
+    if hook_type not in valid_hooks:
+        print(f"Error: -hook must be one of {valid_hooks}, got {hook_type!r}")
+        return
+
+    if activation_fn not in ("relu", "topk"):
+        print(f"Error: -act must be 'relu' or 'topk', got {activation_fn!r}")
+        return
+
+    if layer < 0:
+        print(f"Error: layer must be >= 0, got {layer}")
+        return
+
+    n_layers = state["model"].cfg.n_layers
+    if layer >= n_layers:
+        print(f"Error: layer {layer} out of range for this model (0–{n_layers - 1})")
+        return
+
+    # ---- run training --------------------------------------------------------
+    try:
+        trained_sae = train_custom_sae(
+            model=state["model"],
+            config_name=state["config_name"],
+            layer=layer,
+            name=sae_name,
+            hook_type=hook_type,
+            expansion_factor=expansion_factor,
+            d_sae=d_sae,
+            activation_fn=activation_fn,
+            k=k,
+            l1_coefficient=l1_coefficient,
+            lr=lr,
+            training_tokens=training_tokens,
+            train_batch_size_tokens=batch_size,
+            context_size=context_size,
+            dataset_path=dataset_path,
+            device=state["device"],
+            log_to_wandb=log_wandb,
+        )
+    except (ImportError, ValueError) as e:
+        print(f"Error: {e}")
+        return
+
+    print(f"Training finished. SAE has {trained_sae.W_enc.shape[1]:,} features.")
+    print(f"Load it with:  load_sae {sae_name}")
+    print()
+
+
+def cmd_models(_args, _state):
+    print("Available models:")
+    print(f"  {'Key':<22} {'Chat':<6} {'Def.tok':<9} Description")
+    print(f"  {'-'*22} {'-'*6} {'-'*9} {'-'*40}")
     for key, cfg in MODELS.items():
-        table.add_row(key, cfg.display_name, "yes" if cfg.is_chat else "no")
-
-    console.print(table)
-    console.print("[dim]Switch with: model <key>[/dim]\n")
+        chat = "yes" if cfg.is_chat else "no"
+        print(f"  {key:<22} {chat:<6} {cfg.default_max_tokens:<9} {cfg.display_name}")
+    print("\nSwitch with: model <key>")
+    print()
 
 
 def cmd_model(args: str, state: dict):
-    """
-    Switch to a different model+SAE. Loads everything fresh and resets all clamps.
-
-    Example:  model gemma-2b-it
-    """
     key = args.strip()
     if not key:
-        current = state["config_name"]
-        console.print(f"[dim]Current model: [cyan]{current}[/cyan]. Use 'models' to list options.[/dim]\n")
+        print(f"Current model: {state['config_name']}  (use 'models' to list options)")
+        print()
         return
 
     if key not in MODELS:
-        known = ", ".join(f'[cyan]{k}[/cyan]' for k in MODELS)
-        console.print(f"[red]Unknown model {key!r}. Available: {known}[/red]\n")
+        print(f"Error: unknown model {key!r}. Available: {', '.join(MODELS)}")
+        print()
         return
 
     if key == state["config_name"]:
-        console.print(f"[dim]Already using {key!r}.[/dim]\n")
+        print(f"Already using {key!r}.")
+        print()
         return
 
-    console.print(f"[bold]Switching to {MODELS[key].display_name}...[/bold]")
-    console.print("[dim]This will download weights on first use.[/dim]")
+    print(f"Switching to {MODELS[key].display_name}...")
+    print("(This will download weights on first use.)")
 
-    # Load the new model FIRST. Only free the old one after a successful load
-    # so that a failed load (auth error, network issue, etc.) leaves the
-    # current model intact and the REPL stays usable.
     import gc
     model, sae, config = load_model_and_sae(key, device=state["device"])
 
-    # Swap: discard old model now that the new one is ready.
     for k in ("model", "sae", "steerer"):
         state.pop(k, None)
     gc.collect()
@@ -474,41 +748,245 @@ def cmd_model(args: str, state: dict):
     state["config_name"] = key
     state["steerer"]     = FeatureSteerer(model, sae, config.hook_point, device=state["device"])
 
-    console.print(f"[bold green]Switched to {config.display_name}[/bold green]\n")
+    print(f"Switched to {config.display_name}")
+    print()
 
 
-def print_help():
-    console.print(Panel(
-        "\n"
-        "  [cyan]analyze[/cyan] [italic]<text>[/italic]              — show top 10 features activated by text\n"
-        "  [cyan]analyze -f[/cyan] [italic]<path>[/italic]           — same, read text from a file\n"
-        "  [cyan]feature[/cyan] [italic]<id> <text>[/italic]         — show per-token activation of a feature\n"
-        "  [cyan]feature[/cyan] [italic]<id> -f <path>[/italic]      — same, read text from a file\n"
-        "  [cyan]clamp[/cyan] [italic]<id> [value][/italic]          — force feature to value (default: 20.0)\n"
-        "  [cyan]unclamp[/cyan] [italic]<id>[/italic]                — remove clamp on one feature\n"
-        "  [cyan]clear[/cyan]                       — remove all clamps\n"
-        "  [cyan]list[/cyan]                        — show currently clamped features\n"
-        "  [cyan]generate[/cyan] [italic]<prompt>[/italic]                — generate text with current clamps\n"
-        "  [cyan]generate -f[/cyan] [italic]<path>[/italic]             — same, read prompt from a file\n"
-        "  [cyan]generate[/cyan] [italic]... -o <path>[/italic]         — write output to a file\n"
-        "  [cyan]compare[/cyan] [italic]<prompt>[/italic]               — normal vs. steered output side by side\n"
-        "  [cyan]compare -f[/cyan] [italic]<path>[/italic]              — same, read prompt from a file\n"
-        "  [cyan]compare[/cyan] [italic]... -o <path>[/italic]          — write both outputs to a file\n"
-        "  [cyan]models[/cyan]                      — list available models\n"
-        "  [cyan]model[/cyan] [italic]<key>[/italic]               — switch to a different model\n"
-        "  [cyan]rpt[/cyan]                         — repeat the last command\n"
-        "  [cyan]help[/cyan]                        — show this message\n"
-        "  [cyan]quit[/cyan]                        — exit\n"
-        "\n"
-        "  [bold]Workflow:[/bold]\n"
-        "    1. [cyan]analyze[/cyan] some text to find interesting feature IDs\n"
-        "    2. Look them up at neuronpedia.org to understand what they represent\n"
-        "    3. [cyan]clamp[/cyan] a feature and [cyan]generate[/cyan] to see its effect\n"
-        "    4. [cyan]compare[/cyan] to see normal vs. steered output side by side\n"
-        "    5. [cyan]clear[/cyan] and try something different\n",
-        title="Feature Steering Explorer — Help",
-        expand=False,
-    ))
+def cmd_tokens(args: str, state: dict):
+    parts = args.strip().split()
+    if not parts:
+        print(f"Current default max tokens: {state['config'].default_max_tokens}")
+        print()
+        return
+
+    try:
+        new_val = int(parts[0])
+        if new_val <= 0:
+            print("Error: max tokens must be positive")
+            return
+        state["config"].default_max_tokens = new_val
+        print(f"Default max tokens set to {new_val}")
+        print()
+    except ValueError:
+        print(f"Error: must be an integer, got {parts[0]!r}")
+        print()
+
+
+_DETAILED_HELP = {
+    "explore": """\
+explore <text> [-topn <n>] [-o <file>]
+explore -f <path> [-topn <n>] [-o <file>]
+
+  Generate a self-contained HTML report showing the top-N activated features
+  for each token in the input text.
+
+  Open the file in a browser:
+    - Each row is a token; columns are Rank 1 .. N.
+    - Cells are colour-coded by activation strength.
+    - Click any cell to open a detail panel showing that feature's activation
+      at every token position (with a bar chart).
+    - Use the search box to jump to any feature by ID.
+    - Only features that appear in the top-N for at least one token are included.
+
+  Flags:
+    -topn <n>   number of top features per token  (default: 10)
+    -o <file>   output HTML file                  (default: explorationoutput.html)
+    -f <path>   read input text from a file
+""",
+
+    "analyze": """\
+analyze <text>
+analyze -f <path>
+
+  Find the 10 features most strongly activated by the input text and print
+  them with their activation values and Neuronpedia links.
+
+  Aggregation is by peak activation across token positions (max pooling).
+""",
+
+    "feature": """\
+feature <id> <text>
+feature <id> -f <path>
+
+  Show per-token activation of a single feature across the input text.
+  Useful for verifying which words or positions trigger a feature.
+  Prints a bar next to each token proportional to its activation value.
+""",
+
+    "clamp": """\
+clamp <id> [value]
+
+  Force feature <id> to exactly <value> at every token during generation.
+  Default value: 20.0.  Typical active range is 1–30; >100 can cause incoherence.
+  Use 'generate' or 'compare' to see the effect.
+""",
+
+    "add": """\
+add <id> [value]
+
+  Add <value> to the natural activation of feature <id> at every token.
+  Default value: 10.0.  Unlike clamp, this preserves the relative variation.
+""",
+
+    "scale": """\
+scale <id> [factor]
+
+  Multiply the activation of feature <id> by <factor> at every token.
+  Default factor: 2.0.
+""",
+
+    "cond_dist": """\
+cond_dist <id> <prob> normal <mean> <std>
+cond_dist <id> <prob> uniform <low> <high>
+
+  Per-token stochastic intervention: with probability <prob>, replace the
+  feature's activation with a sample from the given distribution.
+
+  Distributions:
+    normal  <mean> <std>    e.g. cond_dist 18493 0.5 normal 40 10
+    uniform <low>  <high>   e.g. cond_dist 18493 0.3 uniform 5 30
+""",
+
+    "generate": """\
+generate <prompt> [-n <tokens>] [-o <file>]
+generate -f <path> [-n <tokens>] [-o <file>]
+
+  Generate text from <prompt> with all active feature clamps applied.
+  Flags:
+    -n <tokens>  max new tokens to generate  (default: model default)
+    -o <file>    write prompt + output to a file
+    -f <path>    read the prompt from a file
+""",
+
+    "compare": """\
+compare <prompt> [-n <tokens>] [-o <file>]
+compare -f <path> [-n <tokens>] [-o <file>]
+
+  Generate the same prompt twice — once with no clamps, once with all active
+  clamps — and print both outputs side by side.
+
+  Flags:
+    -n <tokens>  max new tokens per generation  (default: model default)
+    -o <file>    write both outputs to a file
+    -f <path>    read the prompt from a file
+""",
+
+    "train_sae": """\
+train_sae <layer> [-o <name>] [flags...]
+
+  Train a custom Sparse Autoencoder on the currently loaded model.
+  The finished SAE is saved to  custom_saes/<name>/  and can be loaded with
+  'load_sae <name>'.
+
+  Required:
+    <layer>          transformer layer to attach the SAE to (0-indexed)
+
+  Flags:
+    -o <name>        name for this SAE               (default: sae_<layer>)
+    -hook <type>     resid_post | resid_pre | mlp_out | attn_out
+                                                     (default: resid_post)
+    -e <int>         expansion factor: d_sae = d_in x e  (default: 16)
+    -d <int>         dictionary size directly (overrides -e)
+    -act topk|relu   activation function             (default: topk)
+    -k <int>         active features per token, topk only  (default: 50)
+    -l1 <float>      L1 sparsity coefficient, relu only   (default: 5e-5)
+    -lr <float>      learning rate                   (default: 2e-4)
+    -tokens <int>    total training tokens            (default: 500000)
+    -bs <int>        tokens per gradient step         (default: 4096)
+    -ctx <int>       context length                   (default: 128)
+    -ds <str>        HuggingFace dataset path         (default: NeelNanda/pile-10k)
+    -wandb           enable Weights & Biases logging
+""",
+
+    "load_sae": """\
+load_sae <name>
+
+  Load a locally-trained SAE by name and make it active for all commands
+  (analyze, feature, explore, clamp, generate, compare).
+
+  <name> must be a directory under  custom_saes/  created by 'train_sae'.
+  Run 'load_sae' with no argument to see which SAEs are available (will error
+  with a list of known names).
+""",
+
+    "model": """\
+model [key]
+
+  With no argument: print the currently loaded model.
+  With a key: switch to that model (downloads weights on first use).
+  Use 'models' to list all available model keys.
+""",
+
+    "models": """\
+models
+
+  List all available model configurations with their key, chat flag,
+  default token budget, and display name.  Switch with 'model <key>'.
+""",
+
+    "tokens": """\
+tokens [number]
+
+  With no argument: show the current default max-tokens budget for generate/compare.
+  With a number: set it.  Can also be overridden per-command with -n.
+""",
+}
+
+
+def print_help(args: str = ""):
+    cmd = args.strip().lower()
+    if cmd:
+        if cmd in _DETAILED_HELP:
+            print()
+            print(_DETAILED_HELP[cmd])
+        else:
+            print(f"No detailed help for {cmd!r}.")
+            print("Type 'help' (no argument) for the full command list.")
+            print()
+        return
+
+    print("""
+Commands                         (type 'help <command>' for details)
+--------
+  Analysis
+    explore  <text|-f path>      HTML report: top-N features per token, interactive
+    analyze  <text|-f path>      top 10 features for the whole text
+    feature  <id> <text|-f path> per-token activation of one feature
+
+  Steering
+    clamp    <id> [value]        force a feature to a fixed value
+    add      <id> [value]        add to a feature's activation
+    scale    <id> [factor]       multiply a feature's activation
+    cond_dist <id> <prob> ...    per-token stochastic intervention
+    unclamp  <id>                remove clamp on one feature
+    clear                        remove all clamps
+    list                         show active clamps
+
+  Generation
+    generate <prompt|-f path>    generate with active clamps
+    compare  <prompt|-f path>    normal vs. steered output side by side
+
+  SAE management
+    train_sae <layer>            train a custom SAE (many options)
+    load_sae  <name>             load a trained SAE as the active SAE
+
+  Model
+    models                       list available models
+    model    [key]               show or switch current model
+    tokens   [n]                 show or set default generation budget
+
+  Other
+    rpt                          repeat last command
+    help     [command]           this message, or detail for one command
+    quit                         exit
+
+Workflow:
+  1. analyze <text>    find feature IDs that fire for your topic
+  2. feature <id>      verify where a feature fires token-by-token
+  3. explore -f <txt>  browse all top features interactively in a browser
+  4. clamp <id> 25     force a feature on
+  5. compare <prompt>  see normal vs steered output side by side
+""")
 
 
 # ---------------------------------------------------------------------------
@@ -518,20 +996,12 @@ def print_help():
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    console.print(Panel(
-        "[bold]LLM Feature Steering Explorer[/bold]\n"
-        "Inspired by Anthropic's Golden Gate Claude experiment.\n\n"
-        f"Device: [cyan]{device}[/cyan]   |   "
-        "Type [cyan]help[/cyan] for commands, [cyan]models[/cyan] to list models, [cyan]quit[/cyan] to exit.",
-        expand=False,
-    ))
-    console.print()
+    print("Welcome to SAE Manipulation Tool.")
+    print("Type 'help' for commands, 'quit' to exit.")
+    print()
 
-    # Load the default model (GPT-2 small). Use 'model <key>' to switch.
     model, sae, config = load_model_and_sae(DEFAULT_MODEL, device=device)
 
-    # All mutable REPL state lives in one dict so commands can update it
-    # (e.g. when switching models) and the closures always see the new values.
     state = {
         "model":       model,
         "sae":         sae,
@@ -541,31 +1011,37 @@ def main():
         "device":      device,
     }
 
-    console.print("[bold green]Ready![/bold green] Type [cyan]help[/cyan] to see commands.\n")
+    print("Ready. Type 'help' to see commands.")
+    print()
 
-    # All commands receive `state` so they always operate on the current model.
     COMMANDS = {
         "analyze":  lambda args: cmd_analyze(args, state),
         "feature":  lambda args: cmd_feature(args, state),
         "clamp":    lambda args: cmd_clamp(args, state),
-        "unclamp":  lambda args: cmd_unclamp(args, state),
-        "clear":    lambda _:    (state["steerer"].unclamp_all(),
-                                  console.print("[yellow]All clamps removed.[/yellow]\n")),
+        "add":      lambda args: cmd_add(args, state),
+        "scale":     lambda args: cmd_scale(args, state),
+        "cond_dist": lambda args: cmd_cond_dist(args, state),
+        "unclamp":   lambda args: cmd_unclamp(args, state),
+        "clear":    lambda _:    (state["steerer"].unclamp_all(), print("All clamps removed.\n")),
         "list":     lambda _:    cmd_list(state),
         "generate": lambda args: cmd_generate(args, state),
         "compare":  lambda args: cmd_compare(args, state),
-        "models":   lambda args: cmd_models(args, state),
-        "model":    lambda args: cmd_model(args, state),
-        "help":     lambda _:    print_help(),
+        "tokens":    lambda args: cmd_tokens(args, state),
+        "models":    lambda args: cmd_models(args, state),
+        "model":     lambda args: cmd_model(args, state),
+        "explore":   lambda args: cmd_explore(args, state),
+        "load_sae":  lambda args: cmd_load_sae(args, state),
+        "train_sae": lambda args: cmd_train_sae(args, state),
+        "help":     lambda args: print_help(args),
     }
 
-    last_cmd, last_args = None, ""   # track last command for `rpt`
+    last_cmd, last_args = None, ""
 
     while True:
         try:
-            raw = console.input("[bold cyan]> [/bold cyan]").strip()
+            raw = input("> ").strip()
         except (EOFError, KeyboardInterrupt):
-            console.print("\n[dim]Goodbye![/dim]")
+            print("\nGoodbye!")
             break
 
         if not raw:
@@ -576,27 +1052,26 @@ def main():
         args = parts[1] if len(parts) > 1 else ""
 
         if cmd in ("quit", "exit", "q"):
-            console.print("[dim]Goodbye![/dim]")
+            print("Goodbye!")
             break
         elif cmd in ("rpt", "repeat"):
             if last_cmd is None:
-                console.print("[dim]Nothing to repeat yet.[/dim]\n")
+                print("Nothing to repeat yet.")
+                print()
                 continue
-            console.print(f"[dim]Repeating: {last_cmd} {last_args}[/dim]")
+            print(f"Repeating: {last_cmd} {last_args}")
             cmd, args = last_cmd, last_args
-            # fall through to execute below
 
         if cmd in COMMANDS:
             try:
                 COMMANDS[cmd](args)
             except Exception as e:
-                console.print(f"[red]Error: {e}[/red]\n")
-            # Only update last_cmd for real commands, not rpt itself.
+                print(f"Error: {e}")
+                print()
             last_cmd, last_args = cmd, args
         elif cmd not in ("rpt", "repeat"):
-            console.print(
-                f"[red]Unknown command: {cmd!r}[/red] — type [cyan]help[/cyan] for a list.\n"
-            )
+            print(f"Unknown command: {cmd!r}  (type 'help' for a list)")
+            print()
 
 
 if __name__ == "__main__":

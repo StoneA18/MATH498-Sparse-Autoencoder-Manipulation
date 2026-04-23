@@ -9,4 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
-p.txt
+personal/
+.claude/
+
+custom_saes/
+

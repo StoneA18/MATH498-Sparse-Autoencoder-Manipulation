@@ -1,0 +1,5 @@
+Question: What is bigger, an elephant or a mouse?
+elephant
+
+Question: What is faster, a cheetah or a snail?
+Answer:
