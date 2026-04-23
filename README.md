@@ -7,7 +7,7 @@ If you are wondering what this project is about (or if you are grading a project
 
 [Most recent update](./docs/update_042226.pdf)
 
-This, and similar required documents for the coursework-side of this project, can all be found within the `/docs` directory.
+This, and similar required documents for the coursework-side of this project, can all be found within the `/docs` directory. Specifically, the required questions and contributions documentation for this update can be found here: [Questions and Contributions 04/22/26](/docs/update_042226_questions_contributions.md)
 
 As for using this code, you are welcome to play around with it, but it is admittedly not in a final, deliverable state. Some guidance on how to interact with it is included below.
 
