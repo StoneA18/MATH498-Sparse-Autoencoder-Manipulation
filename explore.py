@@ -19,6 +19,7 @@ from feature_steering import (
     generate_exploration_html,
     FeatureSteerer,
     train_custom_sae,
+    is_tbk_sae,
     MODELS,
     DEFAULT_MODEL,
 )
@@ -129,7 +130,11 @@ def _parse_n_flag(args: str, state: dict):
 # ---------------------------------------------------------------------------
 
 def cmd_analyze(args: str, state: dict):
-    result = load_text(args, "Usage: analyze <text>\n       analyze -f <filepath>")
+    tbk = "-tbk" in args.split() or is_tbk_sae(state["sae"])
+    if "-tbk" in args.split():
+        args = " ".join(t for t in args.split() if t != "-tbk")
+
+    result = load_text(args, "Usage: analyze <text> [-tbk]\n       analyze -f <filepath> [-tbk]")
     if result is None:
         return
     text, label = result
@@ -137,11 +142,11 @@ def cmd_analyze(args: str, state: dict):
     preview = text[:80].replace("\n", " ") + ("..." if len(text) > 80 else "")
     if label:
         print(label)
-    print(f"Analyzing: {preview!r}")
+    print(f"Analyzing: {preview!r}" + ("  [tbk]" if tbk else ""))
 
     results = top_features_for_text(
         text, state["model"], state["sae"], state["config"].hook_point,
-        k=10, device=state["device"],
+        k=10, device=state["device"], selection="tbk" if tbk else "topk",
     )
 
     print(f"\nTop features for: {preview!r}")
@@ -471,6 +476,10 @@ def cmd_explore(args: str, state: dict):
     args, outpath = extract_flag(args, "-o")
     args, topn_str = extract_flag(args, "-topn")
 
+    tbk = "-tbk" in args.split() or is_tbk_sae(state["sae"])
+    if "-tbk" in args.split():
+        args = " ".join(t for t in args.split() if t != "-tbk")
+
     try:
         top_n = int(topn_str) if topn_str else 10
         if top_n < 1:
@@ -492,7 +501,7 @@ def cmd_explore(args: str, state: dict):
 
     preview = text[:60].replace("\n", " ") + ("..." if len(text) > 60 else "")
     print(f"Running feature exploration on: {preview!r}")
-    print(f"  top_n={top_n}  output={outpath!r}")
+    print(f"  top_n={top_n}  selection={'tbk' if tbk else 'topk'}  output={outpath!r}")
 
     html = generate_exploration_html(
         text=text,
@@ -502,6 +511,7 @@ def cmd_explore(args: str, state: dict):
         top_n=top_n,
         device=state["device"],
         model_name=state["config"].display_name,
+        selection="tbk" if tbk else "topk",
     )
 
     write_output(outpath, html)
@@ -551,7 +561,7 @@ def cmd_train_sae(args: str, state: dict):
       -hook  resid_post|resid_pre|mlp_out|attn_out   (default: resid_post)
       -d     <d_sae>          dictionary size; overrides -e when set
       -e     <expansion>      d_sae = d_in × expansion  (default: 16)
-      -act   relu|topk        activation function        (default: topk)
+      -act   relu|topk|tbk    activation function        (default: topk)
       -k     <int>            active features for topk   (default: 50)
       -l1    <float>          L1 coefficient for relu    (default: 5e-5)
       -lr    <float>          learning rate              (default: 2e-4)
@@ -659,8 +669,8 @@ def cmd_train_sae(args: str, state: dict):
         print(f"Error: -hook must be one of {valid_hooks}, got {hook_type!r}")
         return
 
-    if activation_fn not in ("relu", "topk"):
-        print(f"Error: -act must be 'relu' or 'topk', got {activation_fn!r}")
+    if activation_fn not in ("relu", "topk", "tbk"):
+        print(f"Error: -act must be 'relu', 'topk', or 'tbk', got {activation_fn!r}")
         return
 
     if layer < 0:
@@ -720,6 +730,12 @@ def cmd_model(args: str, state: dict):
         print()
         return
 
+    if key == "-layer":
+        n = state["model"].cfg.n_layers
+        print(f"{state['config_name']} has {n} layers  (valid SAE layers: 0 – {n - 1})")
+        print()
+        return
+
     if key not in MODELS:
         print(f"Error: unknown model {key!r}. Available: {', '.join(MODELS)}")
         print()
@@ -774,8 +790,8 @@ def cmd_tokens(args: str, state: dict):
 
 _DETAILED_HELP = {
     "explore": """\
-explore <text> [-topn <n>] [-o <file>]
-explore -f <path> [-topn <n>] [-o <file>]
+explore <text> [-topn <n>] [-tbk] [-o <file>]
+explore -f <path> [-topn <n>] [-tbk] [-o <file>]
 
   Generate a self-contained HTML report showing the top-N activated features
   for each token in the input text.
@@ -790,18 +806,24 @@ explore -f <path> [-topn <n>] [-o <file>]
 
   Flags:
     -topn <n>   number of top features per token  (default: 10)
+    -tbk        top-bottom-k: select by greatest magnitude instead of highest
+                value — useful when activations can be negative
     -o <file>   output HTML file                  (default: explorationoutput.html)
     -f <path>   read input text from a file
 """,
 
     "analyze": """\
-analyze <text>
-analyze -f <path>
+analyze <text> [-tbk]
+analyze -f <path> [-tbk]
 
   Find the 10 features most strongly activated by the input text and print
   them with their activation values and Neuronpedia links.
 
   Aggregation is by peak activation across token positions (max pooling).
+
+  Flags:
+    -tbk   top-bottom-k: rank by greatest absolute magnitude instead of highest
+           value — returns signed activations, so negatives may appear
 """,
 
     "feature": """\
@@ -887,7 +909,9 @@ train_sae <layer> [-o <name>] [flags...]
                                                      (default: resid_post)
     -e <int>         expansion factor: d_sae = d_in x e  (default: 16)
     -d <int>         dictionary size directly (overrides -e)
-    -act topk|relu   activation function             (default: topk)
+    -act topk|relu|tbk activation function           (default: topk)
+                     tbk = top-bottom-k: selects k features by greatest
+                     absolute magnitude; encoder values may be negative
     -k <int>         active features per token, topk only  (default: 50)
     -l1 <float>      L1 sparsity coefficient, relu only   (default: 5e-5)
     -lr <float>      learning rate                   (default: 2e-4)
@@ -911,9 +935,12 @@ load_sae <name>
 
     "model": """\
 model [key]
+model -layer
 
   With no argument: print the currently loaded model.
   With a key: switch to that model (downloads weights on first use).
+  -layer: print the number of layers in the current model and the valid
+          layer range for SAE placement (0 to n_layers - 1).
   Use 'models' to list all available model keys.
 """,
 
@@ -952,6 +979,7 @@ Commands                         (type 'help <command>' for details)
     explore  <text|-f path>      HTML report: top-N features per token, interactive
     analyze  <text|-f path>      top 10 features for the whole text
     feature  <id> <text|-f path> per-token activation of one feature
+    (add -tbk to explore/analyze to select by greatest magnitude instead of highest value)
 
   Steering
     clamp    <id> [value]        force a feature to a fixed value

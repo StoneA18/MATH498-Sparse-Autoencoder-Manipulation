@@ -270,6 +270,7 @@ def top_features_for_text(
     k: int = 10,
     device: str = "cpu",
     aggregate: str = "max",
+    selection: str = "topk",
 ) -> List[Tuple[int, float]]:
     """
     Find the k features most strongly activated by the given text.
@@ -280,9 +281,14 @@ def top_features_for_text(
         aggregate:  How to combine activations across token positions:
                     "max"  — peak activation across tokens (catches concept triggers)
                     "mean" — average activation (captures sustained themes)
+        selection:  How to rank features after aggregation:
+                    "topk" — highest values (standard; assumes non-negative activations)
+                    "tbk"  — top-bottom-k: highest absolute magnitude, preserving sign
+                             (useful when activations can be negative)
 
     Returns:
-        List of (feature_index, activation_value) sorted from highest to lowest.
+        List of (feature_index, activation_value) sorted from highest to lowest
+        (topk) or highest magnitude to lowest (tbk).
     """
     feature_acts = get_feature_activations(text, model, sae, hook_point, device)
     # feature_acts: [seq_len, d_sae]
@@ -292,7 +298,15 @@ def top_features_for_text(
     else:
         scores = feature_acts.mean(dim=0)     # [d_sae] — mean per feature
 
-    top_vals, top_idx = scores.topk(k)
+    if selection == "tbk":
+        top_idx = scores.abs().topk(k).indices          # k indices with largest |value|
+        top_vals = scores[top_idx]
+        order = top_vals.abs().argsort(descending=True) # sort by magnitude desc
+        top_idx = top_idx[order]
+        top_vals = top_vals[order]
+    else:
+        top_vals, top_idx = scores.topk(k)
+
     return [(int(i), float(v)) for i, v in zip(top_idx, top_vals)]
 
 
@@ -532,6 +546,7 @@ def generate_exploration_html(
     top_n: int = 10,
     device: str = "cpu",
     model_name: str = "",
+    selection: str = "topk",
 ) -> str:
     """
     Run text through the model+SAE and return a self-contained HTML report.
@@ -550,6 +565,9 @@ def generate_exploration_html(
         top_n:       Number of top features to show per token.  Default: 10.
         device:      Torch device string.
         model_name:  Display name shown in the report header.
+        selection:   "topk" — select by highest value (default).
+                     "tbk"  — top-bottom-k: select by highest absolute magnitude,
+                              preserving sign (activations may be negative).
 
     Returns:
         A self-contained HTML string ready to write to a .html file.
@@ -563,7 +581,16 @@ def generate_exploration_html(
     seq_len, d_sae = feature_acts.shape
     actual_top_n = min(top_n, d_sae)
 
-    top_vals, top_idx = feature_acts.topk(actual_top_n, dim=1)
+    if selection == "tbk":
+        # Select the actual_top_n features with the greatest absolute magnitude per token.
+        top_idx = feature_acts.abs().topk(actual_top_n, dim=1).indices  # [seq_len, actual_top_n]
+        top_vals = feature_acts.gather(1, top_idx)                       # signed values
+        # Re-sort each row by magnitude descending so rank 1 = highest |value|.
+        order = top_vals.abs().argsort(dim=1, descending=True)
+        top_idx  = top_idx.gather(1, order)
+        top_vals = top_vals.gather(1, order)
+    else:
+        top_vals, top_idx = feature_acts.topk(actual_top_n, dim=1)
     # top_vals, top_idx: [seq_len, actual_top_n]
 
     # Collect all feature IDs that appear in any token's top-N
@@ -852,6 +879,35 @@ class FeatureSteerer:
 # Each SAE is stored as  SAES_ROOT/<name>/cfg.json  +  sae_weights.safetensors
 SAES_ROOT = "./custom_saes"
 
+
+class _TBKActivation(torch.nn.Module):
+    """
+    Top-bottom-k activation: selects the k features with the greatest absolute
+    magnitude and keeps their signed values; everything else is zeroed out.
+
+    Unlike standard TopK (which only considers positive pre-activations), TBK
+    can return negative values, so features can represent both directions.
+    """
+    def __init__(self, k: int):
+        super().__init__()
+        self.k = k
+
+    def forward(self, pre_acts: torch.Tensor) -> torch.Tensor:
+        topk_idx = pre_acts.abs().topk(self.k, dim=-1).indices
+        acts = torch.zeros_like(pre_acts)
+        acts.scatter_(-1, topk_idx, pre_acts.gather(-1, topk_idx))
+        return acts
+
+
+def _tbk_activation(k: int) -> _TBKActivation:
+    """Return a TBK activation module for the given k."""
+    return _TBKActivation(k)
+
+
+def is_tbk_sae(sae) -> bool:
+    """Return True if the SAE is using TBK magnitude-based activation."""
+    return isinstance(getattr(sae, "activation_fn", None), _TBKActivation)
+
 # Hook type → TransformerLens hook name fragment
 _HOOK_TYPE_MAP = {
     "resid_post": "hook_resid_post",
@@ -863,33 +919,68 @@ _HOOK_TYPE_MAP = {
 
 def load_sae_from_name(name: str, device: str = "cpu") -> Tuple[SAE, str]:
     """
-    Load a locally-trained SAE by name.
+    Load an SAE by name — either a pretrained one from MODELS or a locally-trained one.
 
-    Looks for   SAES_ROOT/<name>/cfg.json  (written by train_custom_sae).
+    Pretrained SAEs are identified by their MODELS key (e.g. "gpt2-small",
+    "gemma-2b-it").  Locally-trained SAEs are identified by the name given to
+    train_custom_sae and live under  SAES_ROOT/<name>/.
 
     Args:
-        name:    The short name given when the SAE was trained (e.g. "sae1").
+        name:    A MODELS key for a pretrained SAE, or the name given at training time.
         device:  Torch device string.
 
     Returns:
         (sae, hook_point) — the loaded SAE and the hook name it was trained on.
 
     Raises:
-        FileNotFoundError: if no SAE with that name exists.
+        FileNotFoundError: if no custom SAE with that name exists.
         RuntimeError:      if the SAE config does not contain a hook_name.
+        ValueError:        if a MODELS key is given but that model has no SAE.
     """
+    # ── Pretrained SAE: name matches a MODELS key ──────────────────────────────
+    if name in MODELS:
+        config = MODELS[name]
+        if not config.has_sae:
+            raise ValueError(
+                f"Model {name!r} has no associated pretrained SAE."
+            )
+        print(f"Loading pretrained SAE for {config.display_name}...")
+        sae, cfg, _ = SAE.from_pretrained_with_cfg_and_sparsity(
+            release=config.sae_release,
+            sae_id=config.sae_id,
+            device=device,
+        )
+        sae.eval()
+        hook_point = config.hook_point or cfg.get("hook_name")
+        if hook_point is None:
+            raise RuntimeError(
+                f"Could not determine hook_point for pretrained SAE {name!r}. "
+                "Set hook_point in ModelConfig or ensure the SAE cfg contains 'hook_name'."
+            )
+        print(f"  SAE:  {cfg['d_in']} -> {cfg['d_sae']} features")
+        print(f"  Hook: {hook_point}")
+        return sae, hook_point
+
+    # ── Custom SAE: look up on disk ────────────────────────────────────────────
     import json
     import os
     path = os.path.join(SAES_ROOT, name)
     cfg_file = os.path.join(path, "cfg.json")
     if not os.path.isfile(cfg_file):
-        known = [
+        pretrained = [k for k, v in MODELS.items() if v.has_sae]
+        custom = [
             d for d in os.listdir(SAES_ROOT)
             if os.path.isfile(os.path.join(SAES_ROOT, d, "cfg.json"))
         ] if os.path.isdir(SAES_ROOT) else []
-        hint = f"  Known SAEs: {', '.join(known)}" if known else "  (no SAEs trained yet)"
+        hints = []
+        if pretrained:
+            hints.append(f"  Pretrained SAEs (model keys): {', '.join(pretrained)}")
+        if custom:
+            hints.append(f"  Custom trained SAEs: {', '.join(custom)}")
+        if not hints:
+            hints.append("  (no custom SAEs trained yet)")
         raise FileNotFoundError(
-            f"No SAE named {name!r} found in {SAES_ROOT!r}.\n{hint}"
+            f"No SAE named {name!r} found.\n" + "\n".join(hints)
         )
 
     with open(cfg_file) as f:
@@ -905,6 +996,17 @@ def load_sae_from_name(name: str, device: str = "cpu") -> Tuple[SAE, str]:
 
     sae = SAE.load_from_disk(path, device=device)
     sae.eval()
+
+    # Re-apply TBK activation if this SAE was trained with activation_fn="tbk".
+    act_fn_meta = metadata.get("activation_fn")
+    if act_fn_meta == "tbk":
+        k_val = int(metadata.get("k", 50))
+        tbk_fn = _tbk_activation(k_val)
+        if hasattr(sae, "activation_fn"):
+            sae.activation_fn = tbk_fn
+        print(f"  Activation: tbk (k={k_val}, magnitude-based selection, signed values)")
+    elif act_fn_meta:
+        print(f"  Activation: {act_fn_meta}")
 
     d_in  = cfg_dict.get("d_in",  "?")
     d_sae = cfg_dict.get("d_sae", "?")
@@ -953,7 +1055,9 @@ def train_custom_sae(
                                   "attn_out"    attention block output
         expansion_factor:       d_sae = d_in × expansion_factor (ignored if d_sae set).
         d_sae:                  Dictionary size (features).  Overrides expansion_factor.
-        activation_fn:          "topk" (recommended) or "relu".
+        activation_fn:          "topk" (recommended), "relu", or "tbk"
+                                (top-bottom-k: selects k features by greatest
+                                absolute magnitude, preserving sign).
         k:                      Active features per token for TopK.  Default: 50.
         l1_coefficient:         Sparsity penalty for ReLU.  Default: 5e-5.
         lr:                     AdamW learning rate.  Default: 2e-4.
@@ -994,9 +1098,9 @@ def train_custom_sae(
         known = ", ".join(f'"{h}"' for h in _HOOK_TYPE_MAP)
         raise ValueError(f"Unknown hook_type {hook_type!r}. Choices: {known}")
 
-    if activation_fn not in ("topk", "relu"):
+    if activation_fn not in ("topk", "relu", "tbk"):
         raise ValueError(
-            f"Unknown activation_fn {activation_fn!r}. Choices: \"topk\", \"relu\""
+            f"Unknown activation_fn {activation_fn!r}. Choices: \"topk\", \"relu\", \"tbk\""
         )
 
     cfg = MODELS.get(config_name)
@@ -1010,7 +1114,9 @@ def train_custom_sae(
     else:
         expansion_factor = max(1, d_sae // d_in)
 
-    if activation_fn == "topk":
+    # tbk trains with the TopK architecture (same sparsity guarantee) and has
+    # magnitude-based selection applied at load time via _tbk_activation().
+    if activation_fn in ("topk", "tbk"):
         sae_cfg = TopKTrainingSAEConfig(d_in=d_in, d_sae=d_sae, k=k, device=device)
     else:
         sae_cfg = StandardTrainingSAEConfig(
@@ -1030,7 +1136,7 @@ def train_custom_sae(
     print(f"  model:        {tl_name}")
     print(f"  hook:         {hook_name}  (layer {layer}, {hook_type})")
     print(f"  d_in -> d_sae: {d_in} -> {d_sae}  (x{expansion_factor})")
-    print(f"  activation:   {activation_fn}" + (f"  k={k}" if activation_fn == "topk" else f"  l1={l1_coefficient}"))
+    print(f"  activation:   {activation_fn}" + (f"  k={k}" if activation_fn in ("topk", "tbk") else f"  l1={l1_coefficient}"))
     print(f"  lr:           {lr}")
     print(f"  steps:        {n_steps}  ({training_tokens:,} tokens ÷ {train_batch_size_tokens} batch)")
     print(f"  buffer:       {n_batches_in_buffer} batches × {context_size} ctx = {n_batches_in_buffer * context_size:,} tokens")
@@ -1069,6 +1175,19 @@ def train_custom_sae(
                 os.path.join(target_dir, fname),
             )
     shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # For tbk SAEs, stamp the activation function into cfg.json metadata so
+    # load_sae_from_name can re-apply _tbk_activation() on load.
+    if activation_fn == "tbk":
+        import json as _json
+        cfg_path = os.path.join(target_dir, "cfg.json")
+        if os.path.isfile(cfg_path):
+            with open(cfg_path) as _f:
+                _cfg_data = _json.load(_f)
+            _cfg_data.setdefault("metadata", {})["activation_fn"] = "tbk"
+            _cfg_data.setdefault("metadata", {})["k"] = k
+            with open(cfg_path, "w") as _f:
+                _json.dump(_cfg_data, _f)
 
     print(f"\nTraining complete.  Load with:  load_sae {name}")
     return trained_sae
