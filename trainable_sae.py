@@ -33,16 +33,46 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
+import importlib.metadata
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Iterator, List, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
 from torch import nn
-from transformer_lens import HookedTransformer
-
-
 ActivationLike = Union[str, Callable[[torch.Tensor], torch.Tensor], nn.Module]
+
+
+def _patch_torch_metadata_version() -> None:
+    """
+    Work around local envs where importlib metadata returns None for torch.
+
+    Some versions of datasets/transformer_lens parse importlib.metadata.version("torch")
+    during import. In this venv that value can be None, while torch.__version__ is valid.
+    """
+    if getattr(importlib.metadata, "_trainable_sae_torch_version_patch", False):
+        return
+
+    metadata_version = importlib.metadata.version
+
+    def version_with_torch_fallback(package_name: str) -> str:
+        version = metadata_version(package_name)
+        if package_name == "torch" and version is None:
+            return torch.__version__.split("+", maxsplit=1)[0]
+        return version
+
+    importlib.metadata.version = version_with_torch_fallback
+    importlib.metadata._trainable_sae_torch_version_patch = True
+
+
+def _exception_chain_text(exc: BaseException) -> str:
+    """Collect chained exception text so wrapped HF errors remain diagnosable."""
+    messages = []
+    current: Optional[BaseException] = exc
+    while current is not None:
+        messages.append(str(current))
+        current = current.__cause__ or current.__context__
+    return "\n".join(messages)
 
 
 def resolve_device(device: Optional[str] = "auto") -> str:
@@ -116,6 +146,8 @@ class SAEConfig:
     d_sae: int
     activation: str = "relu"
     k: int = 50
+    shrink_threshold: float = 1.0
+    pre_layer_norm: bool = False
     bias: bool = True
     tied_decoder: bool = False
     normalize_decoder: bool = True
@@ -153,7 +185,24 @@ class TopBottomKActivation(nn.Module):
         return out.scatter(-1, indices, x.gather(-1, indices))
 
 
-def build_activation(activation: ActivationLike, k: int = 50) -> nn.Module:
+class ShrinkActivation(nn.Module):
+    """Soft-threshold activations, preserving signs while shrinking magnitudes."""
+
+    def __init__(self, threshold: float = 1.0):
+        super().__init__()
+        if threshold < 0:
+            raise ValueError("shrink threshold must be non-negative.")
+        self.threshold = float(threshold)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x.sign() * F.relu(x.abs() - self.threshold)
+
+
+def build_activation(
+    activation: ActivationLike,
+    k: int = 50,
+    shrink_threshold: float = 1.0,
+) -> nn.Module:
     """Turn a string/callable/module into an nn.Module activation."""
     if isinstance(activation, nn.Module):
         return activation
@@ -175,9 +224,11 @@ def build_activation(activation: ActivationLike, k: int = 50) -> nn.Module:
         return TopKActivation(k)
     if name in ("tbk", "topbottomk", "top_bottom_k"):
         return TopBottomKActivation(k)
+    if name in ("shrink", "softshrink", "soft_shrink", "soft_threshold"):
+        return ShrinkActivation(shrink_threshold)
     raise ValueError(
         f"Unknown activation {activation!r}. "
-        "Use relu, gelu, sigmoid, tanh, identity, topk, tbk, or a callable/module."
+        "Use relu, gelu, sigmoid, tanh, identity, topk, tbk, shrink, or a callable/module."
     )
 
 
@@ -230,6 +281,7 @@ class AbstractSAE(nn.Module, ABC):
         if recon is None or features is None:
             recon, features = self(x)
         mse = F.mse_loss(recon, x)
+        #what does this line do?
         l1_coeff = float(getattr(getattr(self, "cfg", None), "l1_coefficient", 0.0))
         l1 = features.abs().mean()
         total = mse + l1_coeff * l1
@@ -257,7 +309,16 @@ class TrainableSAE(AbstractSAE):
         self.decoder = nn.Linear(
             cfg.d_sae, cfg.d_in, bias=cfg.bias, dtype=dtype, device=resolved_device
         )
-        self.activation_fn = build_activation(activation or cfg.activation, cfg.k)
+        self.activation_fn = build_activation(
+            activation or cfg.activation,
+            k=cfg.k,
+            shrink_threshold=cfg.shrink_threshold,
+        )
+        self.pre_layer_norm = (
+            nn.LayerNorm(cfg.d_in, elementwise_affine=False, dtype=dtype, device=resolved_device)
+            if cfg.pre_layer_norm
+            else nn.Identity()
+        )
         self.reset_parameters()
 
     @property
@@ -283,6 +344,7 @@ class TrainableSAE(AbstractSAE):
                 self.decoder.weight.div_(self.decoder.weight.norm(dim=0, keepdim=True).clamp_min(1e-8))
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.pre_layer_norm(x)
         return self.activation_fn(self.encoder(x))
 
     def decode(self, features: torch.Tensor) -> torch.Tensor:
@@ -296,16 +358,22 @@ class TrainableSAE(AbstractSAE):
         activations: torch.Tensor,
         optimizer: torch.optim.Optimizer,
         clip_grad_norm: Optional[float] = 1.0,
+        record_nonzero_features: bool = False,
+        sparsity_udf: Optional[Callable[["TrainableSAE", Dict[str, float]], None]] = None,
     ) -> Dict[str, float]:
         self.train()
         optimizer.zero_grad(set_to_none=True)
         recon, features = self(activations)
         loss, metrics = self.loss(activations, recon, features)
+        if record_nonzero_features or sparsity_udf is not None:
+            metrics["avg_nonzero_features"] = float((features != 0).sum(dim=-1).float().mean().detach())
         loss.backward()
         if clip_grad_norm is not None:
             torch.nn.utils.clip_grad_norm_(self.parameters(), clip_grad_norm)
         optimizer.step()
         self.normalize_decoder_weights()
+        if sparsity_udf is not None:
+            sparsity_udf(self, metrics)
         return metrics
 
     def save(self, path: Union[str, Path]) -> None:
@@ -429,8 +497,48 @@ def load_hooked_transformer(
     **kwargs,
 ) -> HookedTransformer:
     """Load a TransformerLens model using the same package style as this repo."""
+    _patch_torch_metadata_version()
+    from transformer_lens import HookedTransformer
+
     resolved_device = resolve_device(device)
-    model = HookedTransformer.from_pretrained(model_name, **kwargs)
+    tokenizer = kwargs.pop("tokenizer", None)
+    if tokenizer is None and kwargs.get("local_files_only", False):
+        from huggingface_hub import snapshot_download
+        from transformers import AutoTokenizer
+
+        tokenizer_path = snapshot_download(
+            repo_id=model_name,
+            local_files_only=True,
+            allow_patterns=[
+                "tokenizer*",
+                "*.model",
+                "special_tokens_map.json",
+                "tokenizer_config.json",
+                "added_tokens.json",
+            ],
+        )
+        tokenizer_kwargs = {
+            "add_bos_token": kwargs.get("default_prepend_bos", True),
+            "local_files_only": True,
+            "trust_remote_code": kwargs.get("trust_remote_code", False),
+            "use_fast": "phi" not in model_name.lower(),
+        }
+        if "token" in kwargs:
+            tokenizer_kwargs["token"] = kwargs["token"]
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, **tokenizer_kwargs)
+
+    try:
+        model = HookedTransformer.from_pretrained(model_name, tokenizer=tokenizer, **kwargs)
+    except OSError as exc:
+        error_text = _exception_chain_text(exc)
+        if "gated repositories" in error_text or "403 Forbidden" in error_text:
+            raise OSError(
+                f"Could not load {model_name!r} from Hugging Face. This model appears "
+                "to require gated-repo access. Accept the model terms on Hugging Face, "
+                "then use a token with access to public gated repositories via "
+                "`huggingface-cli login` or the `HF_TOKEN` environment variable."
+            ) from exc
+        raise
     model.to(resolved_device)
     model.eval()
     return model
@@ -474,6 +582,8 @@ def fit_sae_on_texts(
     steps: int = 100,
     batch_size_tokens: int = 4096,
     optimizer: Optional[torch.optim.Optimizer] = None,
+    record_nonzero_features: bool = False,
+    sparsity_udf: Optional[Callable[[TrainableSAE, Dict[str, float]], None]] = None,
 ) -> List[Dict[str, float]]:
     """Small training loop for quick custom SAE experiments."""
     optimizer = optimizer or torch.optim.AdamW(sae.parameters(), lr=sae.cfg.lr)
@@ -483,7 +593,14 @@ def fit_sae_on_texts(
         activation_batches_from_texts(connector, texts, batch_size_tokens=batch_size_tokens),
         start=1,
     ):
-        metrics.append(sae.training_step(batch.to(connector.device), optimizer))
+        metrics.append(
+            sae.training_step(
+                batch.to(connector.device),
+                optimizer,
+                record_nonzero_features=record_nonzero_features,
+                sparsity_udf=sparsity_udf,
+            )
+        )
         if step >= steps:
             break
 
