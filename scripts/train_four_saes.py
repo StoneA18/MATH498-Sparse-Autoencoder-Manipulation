@@ -34,10 +34,10 @@ from trainable_sae import HookPointSpec, SAEConfig, TrainableSAE, load_hooked_tr
 
 
 SAE_VARIANTS = (
-    {"name": "relu", "activation": "relu", "l1_coefficient": 250.},
-    {"name": "shrink", "activation": "shrink", "l1_coefficient": 250},
-    # {"name": "topk", "activation": "topk", "l1_coefficient": 0.0},
-    # {"name": "topbottomk", "activation": "tbk", "l1_coefficient": 0.0},
+    # {"name": "relu", "activation": "relu", "l1_coefficient": 250.},
+    {"name": "shrink", "activation": "shrink", "l1_coefficient": 400},
+    {"name": "topk", "activation": "topk", "l1_coefficient": 0.0},
+    {"name": "topbottomk", "activation": "tbk", "l1_coefficient": 0.0},
 )
 
 
@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-tokens", type=int, default=8192)
     parser.add_argument("--expansion-factor", type=int, default=16)
     parser.add_argument("--top-k", type=int, default=25)
-    parser.add_argument("--shrink-threshold", type=float, default=0)
+    parser.add_argument("--shrink-threshold", type=float, default=.5)
     parser.add_argument(
         "--pre-layer-norm",
         action="store_true",
@@ -63,7 +63,7 @@ def parse_args() -> argparse.Namespace:
         help="Apply non-affine LayerNorm to activations before the SAE encoder.",
     )
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--min-lr", type=float, default=1e-5)
+    parser.add_argument("--min-lr", type=float, default=1e-6)
     parser.add_argument("--warmup-steps", type=int, default=100)
     parser.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--device", default="auto")
