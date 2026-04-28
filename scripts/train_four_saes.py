@@ -7,11 +7,12 @@ import json
 import random
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Optional
 
 import torch
+import torch.nn.functional as F
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -33,11 +34,28 @@ importlib.metadata.version = _version_with_torch_fallback
 from trainable_sae import HookPointSpec, SAEConfig, TrainableSAE, load_hooked_transformer, resolve_device
 
 
+@dataclass
+class ActivationBatch:
+    activations: Optional[torch.Tensor] = None
+    tokens: Optional[torch.Tensor] = None
+    attention_mask: Optional[torch.Tensor] = None
+
+    @property
+    def token_count(self) -> int:
+        if self.attention_mask is None:
+            if self.activations is None:
+                if self.tokens is None:
+                    return 0
+                return int(self.tokens.numel())
+            return int(self.activations.shape[0])
+        return int(self.attention_mask.sum().item())
+
+
 SAE_VARIANTS = (
     # {"name": "relu", "activation": "relu", "l1_coefficient": 250.},
-    {"name": "shrink", "activation": "shrink", "l1_coefficient": 400},
-    {"name": "topk", "activation": "topk", "l1_coefficient": 0.0},
-    {"name": "topbottomk", "activation": "tbk", "l1_coefficient": 0.0},
+    # {"name": "shrink", "activation": "shrink", "l1_coefficient": 400},
+    # {"name": "topk", "activation": "topk", "l1_coefficient": 0.0},
+    {"name": "topbottomk", "activation": "tbk", "l1_coefficient": 10},
 )
 
 
@@ -49,21 +67,54 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", default="train")
     parser.add_argument("--questions-path", type=Path, default=PROJECT_ROOT / "samples/questions_train.txt")
     parser.add_argument("--question-repeats", type=int, default=3)
-    parser.add_argument("--token-budget", type=int, default=100_000_000)
+    parser.add_argument("--token-budget", type=int, default=500_000_000)
     parser.add_argument("--context-size", type=int, default=64)
     parser.add_argument("--model-forward-texts", type=int, default=128)
-    parser.add_argument("--batch-tokens", type=int, default=8192)
-    parser.add_argument("--expansion-factor", type=int, default=16)
-    parser.add_argument("--top-k", type=int, default=25)
+    parser.add_argument("--batch-tokens", type=int, default=64)
+    parser.add_argument(
+        "--hook-layer",
+        default="middle",
+        help=(
+            "Transformer block layer for SAE activations: 'middle', 'last'/'end', "
+            "or an explicit zero-indexed layer number."
+        ),
+    )
+    parser.add_argument(
+        "--hook-site",
+        default="resid_post",
+        choices=("resid_pre", "resid_post", "mlp_out", "attn_out"),
+        help="TransformerLens hook site within the selected block.",
+    )
+    parser.add_argument("--expansion-factor", type=int, default=64)
+    parser.add_argument("--top-k", type=int, default=50)
     parser.add_argument("--shrink-threshold", type=float, default=.5)
+    parser.add_argument(
+        "--loss-objective",
+        default="reconstruction",
+        choices=("reconstruction", "cross_entropy"),
+        help=(
+            "Train on SAE reconstruction MSE or on final model next-token cross entropy "
+            "with the SAE inserted at the hook point."
+        ),
+    )
+    parser.add_argument(
+        "--l1-context-coef",
+        type=float,
+        default=0.0,
+        help=(
+            "Context feature reuse penalty coefficient. When >0, batches preserve "
+            "the text/token axis and penalize repeated use of the same feature "
+            "across words in a context."
+        ),
+    )
     parser.add_argument(
         "--pre-layer-norm",
         action="store_true",
         default=False,
         help="Apply non-affine LayerNorm to activations before the SAE encoder.",
     )
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--min-lr", type=float, default=1e-6)
+    parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--min-lr", type=float, default=1e-7)
     parser.add_argument("--warmup-steps", type=int, default=100)
     parser.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--device", default="auto")
@@ -144,14 +195,30 @@ def chain_questions_then_dataset(
     yield from iter_dataset_texts(dataset_name, dataset_config, split)
 
 
-def collect_activations_for_text_batch(
-    model,
-    text_batch: list[str],
-    hook_point: str,
-    d_in: int,
-    device: str,
-    context_size: int,
-) -> torch.Tensor:
+def resolve_training_hook_point(model, hook_layer: str, hook_site: str) -> tuple[str, int]:
+    n_layers = int(model.cfg.n_layers)
+    normalized_layer = hook_layer.strip().lower()
+
+    if normalized_layer in ("middle", "mid"):
+        layer = n_layers // 2
+    elif normalized_layer in ("last", "end", "final"):
+        layer = n_layers - 1
+    else:
+        try:
+            layer = int(normalized_layer)
+        except ValueError as exc:
+            raise ValueError(
+                "--hook-layer must be 'middle', 'last'/'end', or a zero-indexed integer; "
+                f"got {hook_layer!r}."
+            ) from exc
+
+    if not 0 <= layer < n_layers:
+        raise ValueError(f"--hook-layer resolved to {layer}, but model has layers 0..{n_layers - 1}.")
+
+    return HookPointSpec(layer=layer, site=hook_site).name, layer
+
+
+def tokenize_text_batch(model, text_batch: list[str], device: str, context_size: int) -> ActivationBatch:
     encoded = model.tokenizer(
         text_batch,
         add_special_tokens=True,
@@ -160,18 +227,36 @@ def collect_activations_for_text_batch(
         max_length=context_size,
         return_tensors="pt",
     )
-    tokens = encoded["input_ids"].to(device)
-    attention_mask = encoded["attention_mask"].to(device)
+    return ActivationBatch(
+        tokens=encoded["input_ids"].to(device),
+        attention_mask=encoded["attention_mask"].to(device).bool(),
+    )
+
+
+def collect_activations_for_text_batch(
+    model,
+    text_batch: list[str],
+    hook_point: str,
+    d_in: int,
+    device: str,
+    context_size: int,
+    preserve_context: bool = False,
+) -> ActivationBatch:
+    token_batch = tokenize_text_batch(model, text_batch, device, context_size)
+    if token_batch.tokens is None or token_batch.attention_mask is None:
+        raise ValueError("Tokenization did not return tokens and an attention mask.")
 
     with torch.no_grad():
         _, cache = model.run_with_cache(
-            tokens,
+            token_batch.tokens,
             names_filter=hook_point,
-            attention_mask=attention_mask,
+            attention_mask=token_batch.attention_mask,
         )
 
     acts = cache[hook_point].detach().to(dtype=torch.float32)
-    return acts[attention_mask.bool()].reshape(-1, d_in)
+    if preserve_context:
+        return ActivationBatch(activations=acts.reshape(acts.shape[0], acts.shape[1], d_in), attention_mask=token_batch.attention_mask)
+    return ActivationBatch(activations=acts[token_batch.attention_mask].reshape(-1, d_in))
 
 
 def activation_batches(
@@ -183,31 +268,91 @@ def activation_batches(
     batch_tokens: int,
     model_forward_texts: int,
     context_size: int,
-) -> Iterator[torch.Tensor]:
+    preserve_context: bool = False,
+) -> Iterator[ActivationBatch]:
     buffer: list[torch.Tensor] = []
+    mask_buffer: list[torch.Tensor] = []
     buffered = 0
 
     for text_batch in batched(texts, model_forward_texts):
-        acts = collect_activations_for_text_batch(
+        collected = collect_activations_for_text_batch(
             model=model,
             text_batch=text_batch,
             hook_point=hook_point,
             d_in=d_in,
             device=device,
             context_size=context_size,
+            preserve_context=preserve_context,
         )
-        buffer.append(acts)
-        buffered += acts.shape[0]
+        if collected.activations is None:
+            raise ValueError("Activation collection did not return activations.")
+        buffer.append(collected.activations)
+        if preserve_context:
+            if collected.attention_mask is None:
+                raise ValueError("preserve_context=True requires an attention mask.")
+            mask_buffer.append(collected.attention_mask)
+        buffered += collected.token_count
 
         while buffered >= batch_tokens:
-            joined = torch.cat(buffer, dim=0)
-            yield joined[:batch_tokens]
-            remainder = joined[batch_tokens:]
-            buffer = [remainder] if remainder.numel() else []
-            buffered = remainder.shape[0] if remainder.numel() else 0
+            if preserve_context:
+                joined = torch.cat(buffer, dim=0)
+                joined_mask = torch.cat(mask_buffer, dim=0)
+                cumulative_tokens = joined_mask.sum(dim=1).cumsum(dim=0)
+                context_count = int((cumulative_tokens < batch_tokens).sum().item()) + 1
+                yield ActivationBatch(activations=joined[:context_count], attention_mask=joined_mask[:context_count])
+                remainder = joined[context_count:]
+                remainder_mask = joined_mask[context_count:]
+                buffer = [remainder] if remainder.numel() else []
+                mask_buffer = [remainder_mask] if remainder_mask.numel() else []
+                buffered = int(remainder_mask.sum().item()) if remainder_mask.numel() else 0
+            else:
+                joined = torch.cat(buffer, dim=0)
+                yield ActivationBatch(activations=joined[:batch_tokens])
+                remainder = joined[batch_tokens:]
+                buffer = [remainder] if remainder.numel() else []
+                buffered = remainder.shape[0] if remainder.numel() else 0
 
     if buffer:
-        yield torch.cat(buffer, dim=0)
+        if preserve_context:
+            yield ActivationBatch(activations=torch.cat(buffer, dim=0), attention_mask=torch.cat(mask_buffer, dim=0))
+        else:
+            yield ActivationBatch(activations=torch.cat(buffer, dim=0))
+
+
+def token_batches(
+    model,
+    texts: Iterable[str],
+    device: str,
+    batch_tokens: int,
+    model_forward_texts: int,
+    context_size: int,
+) -> Iterator[ActivationBatch]:
+    buffer_tokens: list[torch.Tensor] = []
+    buffer_masks: list[torch.Tensor] = []
+    buffered = 0
+
+    for text_batch in batched(texts, model_forward_texts):
+        batch = tokenize_text_batch(model, text_batch, device, context_size)
+        if batch.tokens is None or batch.attention_mask is None:
+            raise ValueError("Tokenization did not return tokens and an attention mask.")
+        buffer_tokens.append(batch.tokens)
+        buffer_masks.append(batch.attention_mask)
+        buffered += batch.token_count
+
+        while buffered >= batch_tokens:
+            joined_tokens = torch.cat(buffer_tokens, dim=0)
+            joined_mask = torch.cat(buffer_masks, dim=0)
+            cumulative_tokens = joined_mask.sum(dim=1).cumsum(dim=0)
+            context_count = int((cumulative_tokens < batch_tokens).sum().item()) + 1
+            yield ActivationBatch(tokens=joined_tokens[:context_count], attention_mask=joined_mask[:context_count])
+            remainder_tokens = joined_tokens[context_count:]
+            remainder_mask = joined_mask[context_count:]
+            buffer_tokens = [remainder_tokens] if remainder_tokens.numel() else []
+            buffer_masks = [remainder_mask] if remainder_mask.numel() else []
+            buffered = int(remainder_mask.sum().item()) if remainder_mask.numel() else 0
+
+    if buffer_tokens:
+        yield ActivationBatch(tokens=torch.cat(buffer_tokens, dim=0), attention_mask=torch.cat(buffer_masks, dim=0))
 
 
 def make_scheduler(
@@ -262,18 +407,23 @@ def build_sae(
         pre_layer_norm=args.pre_layer_norm,
         lr=args.lr,
         l1_coefficient=float(variant["l1_coefficient"]),
+        l1_context_coef=args.l1_context_coef,
         dtype=args.sae_dtype,
         device=device,
         metadata={
             "variant": variant["name"],
             "model_name": args.model,
             "hook_point": hook_point,
+            "hook_layer": args.hook_layer,
+            "hook_site": args.hook_site,
             "dataset": args.dataset,
             "dataset_config": args.dataset_config,
             "token_budget": args.token_budget,
             "context_size": args.context_size,
             "model_forward_texts": args.model_forward_texts,
             "batch_tokens": args.batch_tokens,
+            "loss_objective": args.loss_objective,
+            "l1_context_coef": args.l1_context_coef,
         },
     )
     sae = TrainableSAE(cfg, device=device)
@@ -337,6 +487,75 @@ def make_target_sparsity_udf(
     return target_sparsity_udf
 
 
+def train_cross_entropy_step(
+    model,
+    sae: TrainableSAE,
+    tokens: torch.Tensor,
+    attention_mask: torch.Tensor,
+    hook_point: str,
+    optimizer: torch.optim.Optimizer,
+    clip_grad_norm: Optional[float] = 1.0,
+    record_nonzero_features: bool = False,
+    sparsity_udf: Optional[Callable[[TrainableSAE, dict[str, float]], None]] = None,
+) -> dict[str, float]:
+    sae.train()
+    model.eval()
+    optimizer.zero_grad(set_to_none=True)
+    captured_features: list[torch.Tensor] = []
+
+    def sae_reconstruction_hook(acts: torch.Tensor, hook) -> torch.Tensor:
+        del hook
+        input_dtype = acts.dtype
+        sae_dtype = next(sae.parameters()).dtype
+        recon, features = sae(acts.to(device=sae.cfg.device, dtype=sae_dtype))
+        captured_features.append(features)
+        return recon.to(dtype=input_dtype)
+
+    try:
+        model.add_hook(hook_point, sae_reconstruction_hook)
+        logits = model(tokens, attention_mask=attention_mask)
+    finally:
+        model.reset_hooks()
+
+    if not captured_features:
+        raise RuntimeError(f"SAE hook {hook_point!r} did not run during the model forward pass.")
+
+    prediction_logits = logits[:, :-1, :].contiguous()
+    target_tokens = tokens[:, 1:].contiguous()
+    target_mask = attention_mask[:, 1:].to(dtype=prediction_logits.dtype)
+    cross_entropy_per_token = F.cross_entropy(
+        prediction_logits.view(-1, prediction_logits.shape[-1]),
+        target_tokens.view(-1),
+        reduction="none",
+    ).view_as(target_tokens)
+    cross_entropy = (cross_entropy_per_token * target_mask).sum() / target_mask.sum().clamp_min(1.0)
+
+    features = captured_features[-1]
+    regularization, reg_metrics = sae.regularization_loss(features, loss_mask=attention_mask)
+    loss = cross_entropy + regularization
+    metrics = {
+        "loss": float(loss.detach()),
+        "cross_entropy": float(cross_entropy.detach()),
+        **reg_metrics,
+    }
+
+    if record_nonzero_features or sparsity_udf is not None:
+        nonzero_features = (features != 0).sum(dim=-1).float()
+        mask = attention_mask.to(device=features.device, dtype=nonzero_features.dtype)
+        metrics["avg_nonzero_features"] = float(
+            (nonzero_features * mask).sum().div(mask.sum().clamp_min(1.0)).detach()
+        )
+
+    loss.backward()
+    if clip_grad_norm is not None:
+        torch.nn.utils.clip_grad_norm_(sae.parameters(), clip_grad_norm)
+    optimizer.step()
+    sae.normalize_decoder_weights()
+    if sparsity_udf is not None:
+        sparsity_udf(sae, metrics)
+    return metrics
+
+
 
 
 def main() -> None:
@@ -355,11 +574,12 @@ def main() -> None:
     model = load_hooked_transformer(args.model, device=device, dtype=model_dtype)
     if model.tokenizer.pad_token_id is None:
         model.tokenizer.pad_token = model.tokenizer.eos_token
+    for parameter in model.parameters():
+        parameter.requires_grad_(False)
 
-    mid_layer = model.cfg.n_layers // 2
-    hook_point = HookPointSpec(layer=mid_layer, site="resid_post").name
+    hook_point, hook_layer = resolve_training_hook_point(model, args.hook_layer, args.hook_site)
     d_in = model.cfg.d_model
-    print(f"hook_point={hook_point}, d_in={d_in}")
+    print(f"hook_point={hook_point}, hook_layer={hook_layer}, hook_site={args.hook_site}, d_in={d_in}")
 
     questions = read_questions(args.questions_path, args.question_repeats)
 
@@ -379,6 +599,7 @@ def main() -> None:
         )
         metrics: list[dict[str, float]] = []
         texts = chain_questions_then_dataset(questions, args.dataset, args.dataset_config, args.split)
+        preserve_context = args.l1_context_coef != 0.0
         total_seen_tokens = 0
         step = 0
         sparsity_udf = make_target_sparsity_udf(
@@ -387,8 +608,17 @@ def main() -> None:
             args.sparsity_ema_beta,
         )
 
-        for step, batch in enumerate(
-            activation_batches(
+        batches = (
+            token_batches(
+                model=model,
+                texts=texts,
+                device=device,
+                batch_tokens=args.batch_tokens,
+                model_forward_texts=args.model_forward_texts,
+                context_size=args.context_size,
+            )
+            if args.loss_objective == "cross_entropy"
+            else activation_batches(
                 model=model,
                 texts=texts,
                 hook_point=hook_point,
@@ -397,18 +627,45 @@ def main() -> None:
                 batch_tokens=args.batch_tokens,
                 model_forward_texts=args.model_forward_texts,
                 context_size=args.context_size,
-            ),
+                preserve_context=preserve_context,
+            )
+        )
+
+        for step, batch in enumerate(
+            batches,
             start=1,
         ):
-            batch = batch.to(device=device, dtype=torch.float32)
-            total_seen_tokens += batch.shape[0]
+            total_seen_tokens += batch.token_count
 
-            step_metrics = sae.training_step(
-                batch,
-                optimizer,
-                record_nonzero_features=args.log_nonzero_features,
-                sparsity_udf=sparsity_udf,
-            )
+            if args.loss_objective == "cross_entropy":
+                if batch.tokens is None or batch.attention_mask is None:
+                    raise ValueError("Cross entropy training requires token batches with attention masks.")
+                step_metrics = train_cross_entropy_step(
+                    model=model,
+                    sae=sae,
+                    tokens=batch.tokens.to(device=device),
+                    attention_mask=batch.attention_mask.to(device=device),
+                    hook_point=hook_point,
+                    optimizer=optimizer,
+                    record_nonzero_features=args.log_nonzero_features,
+                    sparsity_udf=sparsity_udf,
+                )
+            else:
+                if batch.activations is None:
+                    raise ValueError("Reconstruction training requires activation batches.")
+                activations = batch.activations.to(device=device, dtype=torch.float32)
+                attention_mask = (
+                    batch.attention_mask.to(device=device)
+                    if batch.attention_mask is not None
+                    else None
+                )
+                step_metrics = sae.training_step(
+                    activations,
+                    optimizer,
+                    record_nonzero_features=args.log_nonzero_features,
+                    sparsity_udf=sparsity_udf,
+                    loss_mask=attention_mask,
+                )
             scheduler.step()
             step_metrics["lr"] = scheduler.get_last_lr()[0]
             metrics.append(step_metrics)
@@ -417,6 +674,8 @@ def main() -> None:
                 nonzero_text = ""
                 if args.log_nonzero_features:
                     nonzero_text = f" | avg_nonzero={step_metrics['avg_nonzero_features']:.2f}"
+                if "l1_context" in step_metrics:
+                    nonzero_text += f" | l1_context={step_metrics['l1_context']:.4f}"
                 if sparsity_udf is not None:
                     nonzero_text += f" | ema_nonzero={step_metrics['ema_nonzero_features']:.2f}"
                     if "l1_coefficient" in step_metrics:
@@ -425,7 +684,8 @@ def main() -> None:
                         nonzero_text += f" | shrink_threshold={step_metrics['shrink_threshold']:.4f}"
                 print(
                     f"{name} | step {step:05d} | tokens={total_seen_tokens:,} | "
-                    f"loss={step_metrics['loss']:.4f} | mse={step_metrics['mse']:.4f} | "
+                    f"loss={step_metrics['loss']:.4f} | {args.loss_objective}="
+                    f"{step_metrics.get('mse', step_metrics.get('cross_entropy', 0.0)):.4f} | "
                     f"l1={step_metrics['l1']:.4f}{nonzero_text} | lr={step_metrics['lr']:.2e}"
                 )
 

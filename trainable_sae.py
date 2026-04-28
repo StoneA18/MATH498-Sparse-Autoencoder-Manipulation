@@ -35,12 +35,14 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 import importlib.metadata
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Iterator, List, Optional, Tuple, Union
+from typing import Callable, Dict, Iterable, Iterator, List, Literal, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 ActivationLike = Union[str, Callable[[torch.Tensor], torch.Tensor], nn.Module]
+FeatureProjector = Callable[[torch.Tensor], torch.Tensor]
+ProjectorLocation = Literal["pre_activation", "post_activation"]
 
 
 def _patch_torch_metadata_version() -> None:
@@ -152,6 +154,7 @@ class SAEConfig:
     tied_decoder: bool = False
     normalize_decoder: bool = True
     l1_coefficient: float = 1e-4
+    l1_context_coef: float = 0.0
     lr: float = 2e-4
     dtype: str = "float32"
     device: str = "auto"
@@ -276,16 +279,73 @@ class AbstractSAE(nn.Module, ABC):
         x: torch.Tensor,
         recon: Optional[torch.Tensor] = None,
         features: Optional[torch.Tensor] = None,
+        loss_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
         """Default MSE + L1 loss. Override for custom training objectives."""
         if recon is None or features is None:
             recon, features = self(x)
-        mse = F.mse_loss(recon, x)
-        #what does this line do?
+
+        if loss_mask is None:
+            mse = F.mse_loss(recon, x)
+        else:
+            mask = loss_mask.to(device=x.device, dtype=x.dtype)
+            while mask.ndim < x.ndim:
+                mask = mask.unsqueeze(-1)
+            valid_tokens = mask.sum().clamp_min(1.0)
+            mse = ((recon - x).pow(2) * mask).sum() / (valid_tokens * x.shape[-1])
+
+        regularization, metrics = self.regularization_loss(features, loss_mask=loss_mask)
+        total = mse + regularization
+        metrics = {
+            "loss": float(total.detach()),
+            "mse": float(mse.detach()),
+            **metrics,
+        }
+        return total, metrics
+
+    def regularization_loss(
+        self,
+        features: torch.Tensor,
+        loss_mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, Dict[str, float]]:
+        """Return the SAE L1 penalties used by all training objectives."""
+        if loss_mask is None:
+            l1 = features.abs().mean()
+        else:
+            mask = loss_mask.to(device=features.device, dtype=features.dtype)
+            while mask.ndim < features.ndim:
+                mask = mask.unsqueeze(-1)
+            valid_tokens = mask.sum().clamp_min(1.0)
+            l1 = (features.abs() * mask).sum() / (valid_tokens * features.shape[-1])
+
         l1_coeff = float(getattr(getattr(self, "cfg", None), "l1_coefficient", 0.0))
-        l1 = features.abs().mean()
-        total = mse + l1_coeff * l1
-        return total, {"loss": float(total.detach()), "mse": float(mse.detach()), "l1": float(l1.detach())}
+        l1_context_coef = float(getattr(getattr(self, "cfg", None), "l1_context_coef", 0.0))
+        context_l1 = features.new_tensor(0.0)
+        if l1_context_coef != 0.0 and features.ndim >= 3:
+            feature_abs = features.abs()
+            if loss_mask is not None:
+                context_mask = loss_mask.to(device=features.device, dtype=features.dtype)
+                while context_mask.ndim < features.ndim:
+                    context_mask = context_mask.unsqueeze(-1)
+                feature_abs = feature_abs * context_mask
+                valid_per_context = loss_mask.to(device=features.device, dtype=features.dtype).sum(dim=-1).clamp_min(1.0)
+            else:
+                valid_per_context = features.new_full(features.shape[:-2], features.shape[-2])
+
+            # Sum each feature's L1 mass across the token dimension, then square
+            # it so reusing one feature on many tokens is costlier than spreading
+            # that mass across distinct features.
+            context_feature_mass = feature_abs.sum(dim=-2)
+            context_l1 = (context_feature_mass.pow(2) / valid_per_context.unsqueeze(-1)).mean()
+
+        total = l1_coeff * l1 + l1_context_coef * context_l1
+        metrics = {
+            "l1": float(l1.detach()),
+        }
+        if l1_context_coef != 0.0:
+            metrics["l1_context"] = float(context_l1.detach())
+            metrics["l1_context_coef"] = l1_context_coef
+        return total, metrics
 
 
 class TrainableSAE(AbstractSAE):
@@ -343,9 +403,26 @@ class TrainableSAE(AbstractSAE):
             with torch.no_grad():
                 self.decoder.weight.div_(self.decoder.weight.norm(dim=0, keepdim=True).clamp_min(1e-8))
 
-    def encode(self, x: torch.Tensor) -> torch.Tensor:
+    def pre_activations(self, x: torch.Tensor) -> torch.Tensor:
         x = self.pre_layer_norm(x)
-        return self.activation_fn(self.encoder(x))
+        return self.encoder(x)
+
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        return self.activation_fn(self.pre_activations(x))
+
+    def encode_with_projector(
+        self,
+        x: torch.Tensor,
+        sae_projector: FeatureProjector,
+    ) -> torch.Tensor:
+        pre_activations = self.pre_activations(x)
+        projected = sae_projector(pre_activations)
+        if projected.shape != pre_activations.shape:
+            raise ValueError(
+                "sae_projector must return a tensor with the same shape as its input: "
+                f"got {tuple(projected.shape)}, expected {tuple(pre_activations.shape)}."
+            )
+        return self.activation_fn(projected)
 
     def decode(self, features: torch.Tensor) -> torch.Tensor:
         if self.cfg.tied_decoder:
@@ -360,13 +437,21 @@ class TrainableSAE(AbstractSAE):
         clip_grad_norm: Optional[float] = 1.0,
         record_nonzero_features: bool = False,
         sparsity_udf: Optional[Callable[["TrainableSAE", Dict[str, float]], None]] = None,
+        loss_mask: Optional[torch.Tensor] = None,
     ) -> Dict[str, float]:
         self.train()
         optimizer.zero_grad(set_to_none=True)
         recon, features = self(activations)
-        loss, metrics = self.loss(activations, recon, features)
+        loss, metrics = self.loss(activations, recon, features, loss_mask=loss_mask)
         if record_nonzero_features or sparsity_udf is not None:
-            metrics["avg_nonzero_features"] = float((features != 0).sum(dim=-1).float().mean().detach())
+            nonzero_features = (features != 0).sum(dim=-1).float()
+            if loss_mask is None:
+                metrics["avg_nonzero_features"] = float(nonzero_features.mean().detach())
+            else:
+                mask = loss_mask.to(device=features.device, dtype=nonzero_features.dtype)
+                metrics["avg_nonzero_features"] = float(
+                    (nonzero_features * mask).sum().div(mask.sum().clamp_min(1.0)).detach()
+                )
         loss.backward()
         if clip_grad_norm is not None:
             torch.nn.utils.clip_grad_norm_(self.parameters(), clip_grad_norm)
@@ -444,15 +529,109 @@ class SAEConnector:
         _, cache = self.model.run_with_cache(tokens.to(self.device), names_filter=self.hook_point)
         return cache[self.hook_point].detach().to(self.sae_dtype)
 
-    def hook(self, mode: str = "reconstruct") -> Callable:
+    def features_for_prompt(
+        self,
+        prompt: str,
+        prepend_bos: bool = True,
+        sae_projector: Optional[FeatureProjector] = None,
+        projector_token_index: int = -1,
+        projector_location: ProjectorLocation = "pre_activation",
+    ) -> torch.Tensor:
+        """
+        Return SAE feature activations for each token in a prompt.
+
+        If sae_projector is provided, it is applied to one token's feature
+        vector either before or after the SAE activation function sparsifies it.
+
+        The returned tensor has shape [batch, position, d_sae]. For a single
+        prompt, batch is 1.
+        """
+        tokens = self.model.to_tokens(prompt, prepend_bos=prepend_bos).to(self.device)
+        was_training = self.sae.training
+        self.sae.eval()
+        with torch.no_grad():
+            activations = self.collect_activations(tokens)
+            features = self._encode_features(
+                activations,
+                sae_projector,
+                projector_token_index,
+                projector_location,
+            )
+        if was_training:
+            self.sae.train()
+        return features.detach()
+
+    def _apply_projector_to_token(
+        self,
+        vectors: torch.Tensor,
+        sae_projector: FeatureProjector,
+        projector_token_index: int,
+    ) -> torch.Tensor:
+        projected = vectors.clone()
+        token_vectors = vectors[:, projector_token_index, :]
+        projected_vectors = torch.stack([sae_projector(vector) for vector in token_vectors])
+        if projected_vectors.shape != token_vectors.shape:
+            raise ValueError(
+                "sae_projector must return a vector with the same shape as its input: "
+                f"got {tuple(projected_vectors.shape)}, expected {tuple(token_vectors.shape)}."
+            )
+        projected[:, projector_token_index, :] = projected_vectors
+        return projected
+
+    def _encode_features(
+        self,
+        acts: torch.Tensor,
+        sae_projector: Optional[FeatureProjector] = None,
+        projector_token_index: int = -1,
+        projector_location: ProjectorLocation = "pre_activation",
+    ) -> torch.Tensor:
+        if sae_projector is None:
+            return self.sae.encode(acts)
+        if projector_location == "post_activation":
+            features = self.sae.encode(acts)
+            return self._apply_projector_to_token(features, sae_projector, projector_token_index)
+        if projector_location != "pre_activation":
+            raise ValueError(
+                "projector_location must be 'pre_activation' or 'post_activation', "
+                f"got {projector_location!r}."
+            )
+        encode_with_projector = getattr(self.sae, "encode_with_projector", None)
+        if encode_with_projector is None:
+            raise TypeError(
+                f"{type(self.sae).__name__} does not support pre-activation projection. "
+                "Use TrainableSAE or implement encode_with_projector."
+            )
+
+        def token_projector(pre_activations: torch.Tensor) -> torch.Tensor:
+            return self._apply_projector_to_token(
+                pre_activations,
+                sae_projector,
+                projector_token_index,
+            )
+
+        return encode_with_projector(acts, token_projector)
+
+    def hook(
+        self,
+        mode: str = "reconstruct",
+        sae_projector: Optional[FeatureProjector] = None,
+        projector_token_index: int = -1,
+        projector_location: ProjectorLocation = "pre_activation",
+    ) -> Callable:
         sae = self.sae
 
         def hook_fn(acts: torch.Tensor, hook) -> torch.Tensor:
             del hook
             input_dtype = acts.dtype
             sae_acts = acts.to(self.sae_dtype)
-            features = sae.encode(sae_acts)
-            original_recon = sae.decode(features)
+            original_features = sae.encode(sae_acts)
+            original_recon = sae.decode(original_features)
+            features = self._encode_features(
+                sae_acts,
+                sae_projector,
+                projector_token_index,
+                projector_location,
+            )
 
             if self.feature_transform is not None:
                 features = self.feature_transform(features)
@@ -472,23 +651,80 @@ class SAEConnector:
 
         return hook_fn
 
-    def run_with_sae(self, tokens: torch.Tensor, mode: str = "reconstruct", **forward_kwargs):
+    def run_with_sae(
+        self,
+        tokens: torch.Tensor,
+        mode: str = "reconstruct",
+        sae_projector: Optional[FeatureProjector] = None,
+        projector_token_index: int = -1,
+        projector_location: ProjectorLocation = "pre_activation",
+        **forward_kwargs,
+    ):
         """Run the model with this SAE temporarily inserted at hook_point."""
         try:
-            self.model.add_hook(self.hook_point, self.hook(mode=mode))
+            self.model.add_hook(
+                self.hook_point,
+                self.hook(
+                    mode=mode,
+                    sae_projector=sae_projector,
+                    projector_token_index=projector_token_index,
+                    projector_location=projector_location,
+                ),
+            )
             return self.model(tokens.to(self.device), **forward_kwargs)
         finally:
             self.model.reset_hooks()
 
-    def generate_with_sae(self, prompt: str, mode: str = "reconstruct", **generate_kwargs) -> str:
+    def _clean_generated_text(self, text: str) -> str:
+        return text.replace("<bos>", "").replace("<eos>", "").strip()
+
+    def generate_with_sae(
+        self,
+        prompt: str,
+        mode: str = "reconstruct",
+        sae_projector: Optional[FeatureProjector] = None,
+        projector_token_index: int = -1,
+        projector_location: ProjectorLocation = "pre_activation",
+        clean: bool = True,
+        **generate_kwargs,
+    ) -> str:
         """Generate text with the SAE temporarily inserted."""
         tokens = self.model.to_tokens(prompt).to(self.device)
         try:
-            self.model.add_hook(self.hook_point, self.hook(mode=mode))
+            self.model.add_hook(
+                self.hook_point,
+                self.hook(
+                    mode=mode,
+                    sae_projector=sae_projector,
+                    projector_token_index=projector_token_index,
+                    projector_location=projector_location,
+                ),
+            )
             out = self.model.generate(tokens, **generate_kwargs)
         finally:
             self.model.reset_hooks()
-        return self.model.to_string(out[0, tokens.shape[1]:])
+        text = self.model.to_string(out[0, tokens.shape[1]:])
+        return self._clean_generated_text(text) if clean else text
+
+    def generate(
+        self,
+        prompt: str,
+        sae_projector: Optional[FeatureProjector] = None,
+        projector_token_index: int = -1,
+        projector_location: ProjectorLocation = "pre_activation",
+        clean: bool = True,
+        **generate_kwargs,
+    ) -> str:
+        """Generate text while optionally projecting one SAE feature vector."""
+        return self.generate_with_sae(
+            prompt,
+            mode="reconstruct",
+            sae_projector=sae_projector,
+            projector_token_index=projector_token_index,
+            projector_location=projector_location,
+            clean=clean,
+            **generate_kwargs,
+        )
 
 
 def load_hooked_transformer(
