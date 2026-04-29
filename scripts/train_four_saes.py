@@ -55,7 +55,7 @@ SAE_VARIANTS = (
     # {"name": "relu", "activation": "relu", "l1_coefficient": 250.},
     # {"name": "shrink", "activation": "shrink", "l1_coefficient": 400},
     # {"name": "topk", "activation": "topk", "l1_coefficient": 0.0},
-    {"name": "topbottomk", "activation": "tbk", "l1_coefficient": 10},
+    {"name": "topbottomk", "activation": "tbk", "l1_coefficient": 0.0},
 )
 
 
@@ -67,10 +67,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", default="train")
     parser.add_argument("--questions-path", type=Path, default=PROJECT_ROOT / "samples/questions_train.txt")
     parser.add_argument("--question-repeats", type=int, default=3)
-    parser.add_argument("--token-budget", type=int, default=500_000_000)
+    parser.add_argument("--token-budget", type=int, default=100_000_000)
     parser.add_argument("--context-size", type=int, default=64)
     parser.add_argument("--model-forward-texts", type=int, default=128)
-    parser.add_argument("--batch-tokens", type=int, default=64)
+    parser.add_argument("--batch-tokens", type=int, default=1024)
     parser.add_argument(
         "--hook-layer",
         default="middle",
@@ -85,8 +85,26 @@ def parse_args() -> argparse.Namespace:
         choices=("resid_pre", "resid_post", "mlp_out", "attn_out"),
         help="TransformerLens hook site within the selected block.",
     )
-    parser.add_argument("--expansion-factor", type=int, default=64)
+    parser.add_argument("--expansion-factor", type=int, default=32)
     parser.add_argument("--top-k", type=int, default=50)
+    parser.add_argument(
+        "--k-warmup",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Linearly warm TopK/TBK k from a larger initial value down to --top-k.",
+    )
+    parser.add_argument(
+        "--k-warmup-start-frac",
+        type=float,
+        default=0.30,
+        help="Initial k as a fraction of d_sae when --k-warmup is enabled.",
+    )
+    parser.add_argument(
+        "--k-warmup-training-frac",
+        type=float,
+        default=0.20,
+        help="Fraction of total training steps over which k reaches --top-k.",
+    )
     parser.add_argument("--shrink-threshold", type=float, default=.5)
     parser.add_argument(
         "--loss-objective",
@@ -123,7 +141,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--save-root", type=Path, default=PROJECT_ROOT / "custom_saes")
     parser.add_argument("--run-name", default=None)
-    parser.add_argument("--log-every", type=int, default=10)
+    parser.add_argument("--log-every", type=int, default=200)
     parser.add_argument(
         "--log-nonzero-features",
         action="store_true",
@@ -222,7 +240,7 @@ def tokenize_text_batch(model, text_batch: list[str], device: str, context_size:
     encoded = model.tokenizer(
         text_batch,
         add_special_tokens=True,
-        padding=True,
+        padding="max_length",
         truncation=True,
         max_length=context_size,
         return_tensors="pt",
@@ -386,6 +404,40 @@ def make_scheduler(
         schedulers=[warmup_scheduler, cosine_scheduler],
         milestones=[warmup_steps],
     )
+
+
+def set_sae_k(sae: TrainableSAE, k: int) -> None:
+    k = max(1, min(int(k), sae.cfg.d_sae))
+    sae.cfg.k = k
+    if isinstance(sae.activation_fn, torch.nn.Module) and hasattr(sae.activation_fn, "k"):
+        sae.activation_fn.k = k
+
+
+def k_for_step(
+    step: int,
+    target_k: int,
+    start_k: int,
+    warmup_steps: int,
+) -> int:
+    if warmup_steps <= 1:
+        return target_k
+    progress = min(max((step - 1) / (warmup_steps - 1), 0.0), 1.0)
+    return round(start_k + progress * (target_k - start_k))
+
+
+def make_k_warmup_config(args: argparse.Namespace, sae: TrainableSAE, total_steps: int) -> Optional[dict[str, int]]:
+    activation = sae.cfg.activation.lower()
+    if not args.k_warmup or activation not in ("topk", "tbk", "topbottomk", "top_bottom_k"):
+        return None
+    if not 0 < args.k_warmup_start_frac <= 1:
+        raise ValueError("--k-warmup-start-frac must be in (0, 1].")
+    if not 0 < args.k_warmup_training_frac <= 1:
+        raise ValueError("--k-warmup-training-frac must be in (0, 1].")
+
+    target_k = max(1, min(args.top_k, sae.cfg.d_sae))
+    start_k = max(target_k, min(sae.cfg.d_sae, round(sae.cfg.d_sae * args.k_warmup_start_frac)))
+    warmup_steps = max(1, round(total_steps * args.k_warmup_training_frac))
+    return {"target_k": target_k, "start_k": start_k, "warmup_steps": warmup_steps}
 
 
 def build_sae(
@@ -602,11 +654,18 @@ def main() -> None:
         preserve_context = args.l1_context_coef != 0.0
         total_seen_tokens = 0
         step = 0
+        total_steps = args.max_steps or max(1, args.token_budget // args.batch_tokens)
         sparsity_udf = make_target_sparsity_udf(
             args.target_nonzero_features,
             args.sparsity_control_rate,
             args.sparsity_ema_beta,
         )
+        k_warmup = make_k_warmup_config(args, sae, total_steps)
+        if k_warmup is not None:
+            print(
+                f"k warmup: {k_warmup['start_k']:,} -> {k_warmup['target_k']:,} "
+                f"over {k_warmup['warmup_steps']:,} steps"
+            )
 
         batches = (
             token_batches(
@@ -635,6 +694,15 @@ def main() -> None:
             batches,
             start=1,
         ):
+            if k_warmup is not None:
+                current_k = k_for_step(
+                    step,
+                    target_k=k_warmup["target_k"],
+                    start_k=k_warmup["start_k"],
+                    warmup_steps=k_warmup["warmup_steps"],
+                )
+                set_sae_k(sae, current_k)
+
             total_seen_tokens += batch.token_count
 
             if args.loss_objective == "cross_entropy":
@@ -668,6 +736,8 @@ def main() -> None:
                 )
             scheduler.step()
             step_metrics["lr"] = scheduler.get_last_lr()[0]
+            if k_warmup is not None:
+                step_metrics["k"] = float(sae.cfg.k)
             metrics.append(step_metrics)
 
             if step == 1 or step % args.log_every == 0:
@@ -676,6 +746,8 @@ def main() -> None:
                     nonzero_text = f" | avg_nonzero={step_metrics['avg_nonzero_features']:.2f}"
                 if "l1_context" in step_metrics:
                     nonzero_text += f" | l1_context={step_metrics['l1_context']:.4f}"
+                if "k" in step_metrics:
+                    nonzero_text += f" | k={int(step_metrics['k'])}"
                 if sparsity_udf is not None:
                     nonzero_text += f" | ema_nonzero={step_metrics['ema_nonzero_features']:.2f}"
                     if "l1_coefficient" in step_metrics:
