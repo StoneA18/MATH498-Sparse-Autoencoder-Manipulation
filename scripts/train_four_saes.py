@@ -4,6 +4,7 @@ import argparse
 import gc
 import importlib.metadata
 import json
+import math
 import random
 import sys
 import time
@@ -134,6 +135,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--min-lr", type=float, default=1e-7)
     parser.add_argument("--warmup-steps", type=int, default=100)
+    parser.add_argument(
+        "--k-warmup-fraction",
+        type=float,
+        default=0.2,
+        help=(
+            "For TopK/TopBottomK SAEs, start with all SAE features eligible and "
+            "decay k to --top-k by this fraction of training."
+        ),
+    )
+    parser.add_argument(
+        "--k-warmup-decay-rate",
+        type=float,
+        default=5.0,
+        help=(
+            "Shape of TopK/TopBottomK k warmup decay. Larger values drop k faster "
+            "early and slow more as k approaches --top-k."
+        ),
+    )
     parser.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--model-dtype", default="float32", choices=("float32", "bfloat16", "float16"))
@@ -167,6 +186,16 @@ def parse_args() -> argparse.Namespace:
         help="EMA smoothing factor for measured average non-zero features.",
     )
     return parser.parse_args()
+
+
+def resolve_run_name(run_name: Optional[str]) -> str:
+    if run_name is None or not run_name.strip():
+        return f"gemma3_270m_four_saes_{int(time.time())}"
+
+    path = Path(run_name)
+    if path.is_absolute() or ".." in path.parts:
+        raise ValueError("--run-name must be a relative name under --save-root.")
+    return path.as_posix()
 
 
 def read_questions(path: Path, repeats: int) -> list[str]:
@@ -277,6 +306,29 @@ def collect_activations_for_text_batch(
     return ActivationBatch(activations=acts[token_batch.attention_mask].reshape(-1, d_in))
 
 
+def cat_padded_context_tensors(tensors: list[torch.Tensor], pad_value: float | bool | int = 0) -> torch.Tensor:
+    if not tensors:
+        raise ValueError("Cannot concatenate an empty tensor list.")
+    if len({tensor.shape[1] for tensor in tensors}) == 1:
+        return torch.cat(tensors, dim=0)
+
+    max_seq_len = max(tensor.shape[1] for tensor in tensors)
+    padded_tensors: list[torch.Tensor] = []
+    for tensor in tensors:
+        if tensor.shape[1] == max_seq_len:
+            padded_tensors.append(tensor)
+            continue
+
+        padded_shape = list(tensor.shape)
+        padded_shape[1] = max_seq_len
+        padded = tensor.new_full(padded_shape, pad_value)
+        seq_slice = (slice(None), slice(0, tensor.shape[1]), *([slice(None)] * (tensor.ndim - 2)))
+        padded[seq_slice] = tensor
+        padded_tensors.append(padded)
+
+    return torch.cat(padded_tensors, dim=0)
+
+
 def activation_batches(
     model,
     texts: Iterable[str],
@@ -313,8 +365,8 @@ def activation_batches(
 
         while buffered >= batch_tokens:
             if preserve_context:
-                joined = torch.cat(buffer, dim=0)
-                joined_mask = torch.cat(mask_buffer, dim=0)
+                joined = cat_padded_context_tensors(buffer)
+                joined_mask = cat_padded_context_tensors(mask_buffer, pad_value=False)
                 cumulative_tokens = joined_mask.sum(dim=1).cumsum(dim=0)
                 context_count = int((cumulative_tokens < batch_tokens).sum().item()) + 1
                 yield ActivationBatch(activations=joined[:context_count], attention_mask=joined_mask[:context_count])
@@ -332,7 +384,10 @@ def activation_batches(
 
     if buffer:
         if preserve_context:
-            yield ActivationBatch(activations=torch.cat(buffer, dim=0), attention_mask=torch.cat(mask_buffer, dim=0))
+            yield ActivationBatch(
+                activations=cat_padded_context_tensors(buffer),
+                attention_mask=cat_padded_context_tensors(mask_buffer, pad_value=False),
+            )
         else:
             yield ActivationBatch(activations=torch.cat(buffer, dim=0))
 
@@ -358,8 +413,8 @@ def token_batches(
         buffered += batch.token_count
 
         while buffered >= batch_tokens:
-            joined_tokens = torch.cat(buffer_tokens, dim=0)
-            joined_mask = torch.cat(buffer_masks, dim=0)
+            joined_tokens = cat_padded_context_tensors(buffer_tokens)
+            joined_mask = cat_padded_context_tensors(buffer_masks, pad_value=False)
             cumulative_tokens = joined_mask.sum(dim=1).cumsum(dim=0)
             context_count = int((cumulative_tokens < batch_tokens).sum().item()) + 1
             yield ActivationBatch(tokens=joined_tokens[:context_count], attention_mask=joined_mask[:context_count])
@@ -370,7 +425,10 @@ def token_batches(
             buffered = int(remainder_mask.sum().item()) if remainder_mask.numel() else 0
 
     if buffer_tokens:
-        yield ActivationBatch(tokens=torch.cat(buffer_tokens, dim=0), attention_mask=torch.cat(buffer_masks, dim=0))
+        yield ActivationBatch(
+            tokens=cat_padded_context_tensors(buffer_tokens),
+            attention_mask=cat_padded_context_tensors(buffer_masks, pad_value=False),
+        )
 
 
 def make_scheduler(
@@ -476,6 +534,8 @@ def build_sae(
             "batch_tokens": args.batch_tokens,
             "loss_objective": args.loss_objective,
             "l1_context_coef": args.l1_context_coef,
+            "k_warmup_fraction": args.k_warmup_fraction,
+            "k_warmup_decay_rate": args.k_warmup_decay_rate,
         },
     )
     sae = TrainableSAE(cfg, device=device)
@@ -612,12 +672,16 @@ def train_cross_entropy_step(
 
 def main() -> None:
     args = parse_args()
+    if not 0 <= args.k_warmup_fraction <= 1:
+        raise ValueError("--k-warmup-fraction must be between 0 and 1.")
+    if args.k_warmup_decay_rate <= 0:
+        raise ValueError("--k-warmup-decay-rate must be positive.")
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
     device = resolve_device(args.device)
     model_dtype = getattr(torch, args.model_dtype)
-    run_name = args.run_name or f"gemma3_270m_four_saes_{int(time.time())}"
+    run_name = resolve_run_name(args.run_name)
     run_dir = args.save_root / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "run_args.json").write_text(json.dumps(vars(args), indent=2, default=str), encoding="utf-8")
@@ -640,7 +704,16 @@ def main() -> None:
 
     for variant in SAE_VARIANTS:
         name = str(variant["name"])
+        total_steps = args.max_steps or max(1, args.token_budget // args.batch_tokens)
+        schedule_k = is_k_scheduled_activation(variant["activation"])
+        target_k = args.top_k
+        k_warmup_steps = max(1, math.ceil(total_steps * args.k_warmup_fraction))
         print(f"\n=== Training {name} SAE ===")
+        if schedule_k and args.k_warmup_fraction > 0:
+            print(
+                f"{name} k warmup: {args.expansion_factor * d_in} -> {target_k} "
+                f"over {k_warmup_steps:,} steps ({args.k_warmup_fraction:.0%} of training)"
+            )
         sae, optimizer, scheduler, variant_dir = build_sae(
             args=args,
             variant=variant,
@@ -739,11 +812,32 @@ def main() -> None:
             if k_warmup is not None:
                 step_metrics["k"] = float(sae.cfg.k)
             metrics.append(step_metrics)
+            loss_since_update += step_metrics["loss"]
+            steps_since_update += 1
 
             if step == 1 or step % args.log_every == 0:
+                update_avg_loss = loss_since_update / max(1, steps_since_update)
+                improved_from_last_update = (
+                    previous_update_avg_loss is None
+                    or update_avg_loss < previous_update_avg_loss
+                )
+                step_metrics["update_avg_loss"] = float(update_avg_loss)
+                if previous_update_avg_loss is not None:
+                    step_metrics["previous_update_avg_loss"] = float(previous_update_avg_loss)
+                checkpoint_text = ""
+                if improved_from_last_update:
+                    step_metrics["saved_step_update_checkpoint"] = 1.0
+                    save_one(update_checkpoint_dir, sae, metrics)
+                    checkpoint_text = f" | saved={update_checkpoint_dir.name}"
+                previous_update_avg_loss = update_avg_loss
+                loss_since_update = 0.0
+                steps_since_update = 0
+
                 nonzero_text = ""
                 if args.log_nonzero_features:
                     nonzero_text = f" | avg_nonzero={step_metrics['avg_nonzero_features']:.2f}"
+                if schedule_k:
+                    nonzero_text += f" | k={int(step_metrics['k'])}"
                 if "l1_context" in step_metrics:
                     nonzero_text += f" | l1_context={step_metrics['l1_context']:.4f}"
                 if "k" in step_metrics:
@@ -756,9 +850,10 @@ def main() -> None:
                         nonzero_text += f" | shrink_threshold={step_metrics['shrink_threshold']:.4f}"
                 print(
                     f"{name} | step {step:05d} | tokens={total_seen_tokens:,} | "
-                    f"loss={step_metrics['loss']:.4f} | {args.loss_objective}="
+                    f"loss={step_metrics['loss']:.4f} | avg_loss={update_avg_loss:.4f} | {args.loss_objective}="
                     f"{step_metrics.get('mse', step_metrics.get('cross_entropy', 0.0)):.4f} | "
                     f"l1={step_metrics['l1']:.4f}{nonzero_text} | lr={step_metrics['lr']:.2e}"
+                    f"{checkpoint_text}"
                 )
 
             if args.max_steps is not None and step >= args.max_steps:
@@ -766,6 +861,8 @@ def main() -> None:
             if total_seen_tokens >= args.token_budget:
                 break
 
+        if schedule_k:
+            sae.set_k(target_k)
         save_one(variant_dir, sae, metrics)
         print(f"Saved {name} SAE to {variant_dir}")
         print(f"Finished {step:,} steps over {total_seen_tokens:,} activation tokens for {name}.")

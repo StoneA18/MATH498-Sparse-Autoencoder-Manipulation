@@ -65,12 +65,8 @@ def discover_trainable_saes(roots: tuple[Path, ...]) -> list[SAEOption]:
             continue
         for checkpoint in sorted(root.glob("**/trainable_sae.pt")):
             sae_dir = checkpoint.parent
-            config_path = sae_dir / "config.json"
-            if not config_path.exists():
-                continue
-            try:
-                cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
+            cfg = load_sae_config_for_discovery(sae_dir)
+            if cfg is None:
                 continue
 
             metadata = cfg.get("metadata", {})
@@ -95,6 +91,28 @@ def discover_trainable_saes(roots: tuple[Path, ...]) -> list[SAEOption]:
                 )
             )
     return options
+
+
+def load_sae_config_for_discovery(sae_dir: Path) -> Optional[dict[str, Any]]:
+    """Load SAE config from either the legacy sidecar or the checkpoint payload."""
+    config_path = sae_dir / "config.json"
+    if config_path.exists():
+        try:
+            cfg = json.loads(config_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            cfg = None
+        if isinstance(cfg, dict):
+            return cfg
+
+    checkpoint_path = sae_dir / "trainable_sae.pt"
+    if not checkpoint_path.exists():
+        return None
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    except Exception:
+        return None
+    cfg = checkpoint.get("cfg") if isinstance(checkpoint, dict) else None
+    return cfg if isinstance(cfg, dict) else None
 
 
 class PlaygroundRuntime:
@@ -226,6 +244,35 @@ def payload_float(payload: dict[str, Any], key: str, default: float) -> float:
     return float(value)
 
 
+def parse_float_values(raw: Any, default: float) -> list[float]:
+    if raw is None:
+        return [default]
+    if isinstance(raw, list):
+        values: list[float] = []
+        for item in raw:
+            values.extend(parse_float_values(item, default))
+        return values or [default]
+    if isinstance(raw, torch.Tensor):
+        if raw.numel() == 0:
+            return [default]
+        return [float(value) for value in raw.detach().reshape(-1).cpu().tolist()]
+    text = str(raw).strip()
+    if not text:
+        return [default]
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            return parse_float_values(json.loads(text), default)
+        except json.JSONDecodeError:
+            pass
+    return [float(part) for part in text.replace(",", " ").split() if part.strip()] or [default]
+
+
+def indexed_float(values: list[float], index: int, default: float) -> float:
+    if not values:
+        return default
+    return values[index] if index < len(values) else values[-1]
+
+
 def payload_bool(payload: dict[str, Any], key: str, default: bool) -> bool:
     value = first_scalar(payload.get(key), default)
     if isinstance(value, str):
@@ -236,9 +283,10 @@ def payload_bool(payload: dict[str, Any], key: str, default: bool) -> bool:
 def build_projector(config: dict[str, Any]) -> tuple[Optional[Callable[[torch.Tensor], torch.Tensor]], str]:
     projection = str(first_scalar(config.get("projection"), "identity"))
     feature_ids = parse_feature_ids(config.get("featureIds"))
-    value = payload_float(config, "value", 0.0)
-    factor = payload_float(config, "factor", 1.0)
-    threshold = payload_float(config, "threshold", 0.0)
+    values = parse_float_values(config.get("value"), 0.0)
+    factors = parse_float_values(config.get("factor"), 1.0)
+    thresholds = parse_float_values(config.get("threshold"), 0.0)
+    threshold = indexed_float(thresholds, 0, 0.0)
     top_k = max(1, payload_int(config, "topK", 50))
 
     if projection in ("identity", "none"):
@@ -247,22 +295,35 @@ def build_projector(config: dict[str, Any]) -> tuple[Optional[Callable[[torch.Te
     def projector(features: torch.Tensor) -> torch.Tensor:
         out = features.clone()
         width = out.shape[-1]
-        valid_ids = [idx for idx in feature_ids if 0 <= idx < width]
+        valid_ids = [
+            (offset, idx)
+            for offset, idx in enumerate(feature_ids)
+            if 0 <= idx < width
+        ]
 
         if projection == "clamp":
-            for idx in valid_ids:
-                out[..., idx] = value
+            for offset, idx in valid_ids:
+                out[..., idx] = indexed_float(values, offset, 0.0)
         elif projection == "add":
-            for idx in valid_ids:
-                out[..., idx] += value
+            for offset, idx in valid_ids:
+                out[..., idx] += indexed_float(values, offset, 0.0)
         elif projection == "scale":
-            for idx in valid_ids:
-                out[..., idx] *= factor
+            for offset, idx in valid_ids:
+                out[..., idx] *= indexed_float(factors, offset, 1.0)
         elif projection == "zero":
-            for idx in valid_ids:
+            for _, idx in valid_ids:
                 out[..., idx] = 0
         elif projection == "threshold":
-            out = torch.where(out.abs() >= threshold, out, torch.zeros_like(out))
+            if valid_ids:
+                for offset, idx in valid_ids:
+                    feature_threshold = indexed_float(thresholds, offset, threshold)
+                    out[..., idx] = torch.where(
+                        out[..., idx].abs() >= feature_threshold,
+                        out[..., idx],
+                        torch.zeros_like(out[..., idx]),
+                    )
+            else:
+                out = torch.where(out.abs() >= threshold, out, torch.zeros_like(out))
         elif projection == "top_abs_k":
             k = min(top_k, width)
             indices = out.abs().topk(k, dim=-1).indices
@@ -753,17 +814,17 @@ INDEX_HTML = r"""<!doctype html>
         <div class="row">
           <div>
             <label for="value">Value</label>
-            <input id="value" type="number" step="0.1" value="20" />
+            <input id="value" inputmode="decimal" value="20" />
           </div>
           <div>
             <label for="factor">Factor</label>
-            <input id="factor" type="number" step="0.1" value="2" />
+            <input id="factor" inputmode="decimal" value="2" />
           </div>
         </div>
         <div class="row">
           <div>
             <label for="threshold">Threshold</label>
-            <input id="threshold" type="number" step="0.1" value="1" />
+            <input id="threshold" inputmode="decimal" value="1" />
           </div>
           <div>
             <label for="topK">Top |k|</label>
@@ -844,9 +905,9 @@ function payload() {
     projectorLocation: $("projectorLocation").value,
     tokenIndex: Number($("tokenIndex").value),
     featureIds: $("featureIds").value,
-    value: Number($("value").value),
-    factor: Number($("factor").value),
-    threshold: Number($("threshold").value),
+    value: $("value").value,
+    factor: $("factor").value,
+    threshold: $("threshold").value,
     topK: Number($("topK").value),
     selection: $("selection").value,
     topN: Number($("topN").value)
@@ -931,7 +992,7 @@ async function analyze() {
       `${data.tokens} tokens | ${data.featureWidth} features | avg nonzero ${data.avgNonzeroPerToken.toFixed(2)}`;
     $("analysisRows").innerHTML = data.rows.map(row => {
       const feats = row.features.map(f =>
-        `<button class="pill" type="button" data-feature-id="${f.id}" onclick="renderFeatureChart(${f.id})"><b>${f.id}</b>${f.value.toFixed(3)}</button>`
+        `<button class="pill" type="button" data-feature-id="${f.id}" onclick="handleFeaturePillClick(event, ${f.id}, ${f.value})"><b>${f.id}</b>${f.value.toFixed(3)}</button>`
       ).join("");
       return `<tr><td>${row.position}</td><td class="token">${escapeHtml(row.token)}</td><td>${feats}</td></tr>`;
     }).join("");
@@ -942,6 +1003,49 @@ async function analyze() {
     const detail = err.details ? `\n\n${err.details}` : "";
     $("analysisRows").innerHTML = `<tr><td colspan="3" class="error"><pre>${escapeHtml(String(err.message || err) + detail)}</pre></td></tr>`;
     setBusy("Analysis failed.");
+  }
+}
+
+function splitNumberList(text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed.map(Number).filter(Number.isFinite);
+    if (Number.isFinite(Number(parsed))) return [Number(parsed)];
+  } catch (_) {}
+  return trimmed.split(/[,\s]+/).map(Number).filter(Number.isFinite);
+}
+
+function formatNumberList(values) {
+  return values.map(v => Number(v).toFixed(6).replace(/\.?0+$/, "")).join(", ");
+}
+
+function addFeatureControlValue(featureId, featureValue) {
+  const ids = splitNumberList($("featureIds").value).map(Number);
+  const idIndex = ids.indexOf(Number(featureId));
+  const targetIndex = idIndex === -1 ? ids.length : idIndex;
+  const values = splitNumberList($("value").value);
+  const fillValue = values.length ? values[values.length - 1] : Number(featureValue);
+
+  while (values.length < ids.length) {
+    values.push(fillValue);
+  }
+  if (idIndex === -1) {
+    ids.push(Number(featureId));
+    values.push(Number(featureValue));
+  } else {
+    values[targetIndex] = Number(featureValue);
+  }
+
+  $("featureIds").value = ids.join(", ");
+  $("value").value = formatNumberList(values);
+}
+
+function handleFeaturePillClick(event, featureId, featureValue) {
+  renderFeatureChart(featureId);
+  if (event.ctrlKey || event.metaKey) {
+    addFeatureControlValue(featureId, featureValue);
   }
 }
 

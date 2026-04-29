@@ -403,6 +403,14 @@ class TrainableSAE(AbstractSAE):
             with torch.no_grad():
                 self.decoder.weight.div_(self.decoder.weight.norm(dim=0, keepdim=True).clamp_min(1e-8))
 
+    def set_k(self, k: int) -> None:
+        """Update k for TopK-style activations during scheduled training."""
+        if k <= 0:
+            raise ValueError("k must be positive.")
+        self.cfg.k = int(k)
+        if hasattr(self.activation_fn, "k"):
+            self.activation_fn.k = int(k)
+
     def pre_activations(self, x: torch.Tensor) -> torch.Tensor:
         x = self.pre_layer_norm(x)
         return self.encoder(x)
