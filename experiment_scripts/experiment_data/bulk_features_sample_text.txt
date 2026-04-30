@@ -1,0 +1,21 @@
+The study of sparse autoencoders has emerged as a promising direction in mechanistic
+interpretability research. By training a dictionary learning model on the internal
+activations of a neural network, researchers aim to decompose the polysemantic
+representations of individual neurons into monosemantic features that correspond
+to human-interpretable concepts.
+
+Language models such as GPT-2 process text by predicting the next token given
+the preceding context. Each layer of the transformer builds increasingly abstract
+representations of the input. The residual stream acts as a shared communication
+channel across layers, and SAEs trained on this stream can reveal which high-level
+concepts are being tracked at each processing stage.
+
+Superposition is the phenomenon whereby a neural network represents more features
+than it has dimensions, by assigning slightly different directions to each feature
+and relying on interference being low in practice. Sparse autoencoders exploit
+the assumption that only a small number of features are active on any given input,
+allowing them to recover clean feature directions despite superposition.
+
+Understanding which features activate on different types of text — scientific
+prose versus casual conversation, code versus natural language — can reveal how
+language models build and use internal representations across domains.

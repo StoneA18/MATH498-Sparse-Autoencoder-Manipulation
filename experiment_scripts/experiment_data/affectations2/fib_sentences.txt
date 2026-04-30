@@ -1,0 +1,500 @@
+1. The demeanor was <blank> enough.
+2. The bathroom felt <blank>.
+3. The tap water became <blank>.
+4. The current felt <blank> again.
+5. The sidewalk was <blank>.
+6. The bread was <blank>.
+7. The chimney was <blank>.
+8. The pancakes felt <blank>.
+9. The cistern felt <blank>.
+10. His fingers were <blank>.
+11. The treatment felt <blank>.
+12. The mug was <blank>.
+13. The crater was <blank>.
+14. The evening air was <blank>.
+15. The hostility was <blank>.
+16. The sand felt <blank>.
+17. The saucepan was <blank>.
+18. The fries were <blank>.
+19. The whisk felt <blank>.
+20. The note felt <blank>.
+21. The gravy boat was <blank>.
+22. The tank was <blank>.
+23. The bonfire felt <blank>.
+24. The noodles felt <blank>.
+25. The soup felt <blank>.
+26. The atmosphere was <blank>.
+27. The strainer was <blank>.
+28. His grip felt <blank>.
+29. The cobblestone turned <blank>.
+30. The distance felt <blank>.
+31. The glaze felt <blank>.
+32. The burger felt <blank>.
+33. The creek felt <blank>.
+34. The office was <blank>.
+35. The pavement was <blank>.
+36. The frittata was <blank> outside.
+37. The floor was <blank>.
+38. The shawl felt <blank>.
+39. His forehead was <blank>.
+40. The tureen felt <blank>.
+41. The surface felt <blank>.
+42. The meadow air was <blank>.
+43. The brewed drink was <blank>.
+44. The casserole dish remained <blank>.
+45. The clearing felt <blank>.
+46. The tent felt <blank>.
+47. The milk was <blank>.
+48. The rooftop felt <blank>.
+49. The weather felt <blank>.
+50. The asphalt was <blank>.
+51. The steering wheel felt <blank>.
+52. The motor felt <blank>.
+53. The corridor was <blank>.
+54. The countertop felt <blank>.
+55. The molasses was <blank>.
+56. The porridge felt <blank>.
+57. The banquet room felt <blank>.
+58. The letter was <blank>.
+59. The spatula felt <blank>.
+60. The lava field felt <blank>.
+61. The hood of the car was <blank>.
+62. The cliffside felt <blank>.
+63. The torch felt <blank>.
+64. The space heater grew <blank>.
+65. The robe was <blank>.
+66. The hallway felt <blank>.
+67. The demeanor seemed <blank>.
+68. The cider felt <blank>.
+69. The space heater felt <blank>.
+70. The reaction was <blank>.
+71. The chemistry was <blank>.
+72. The pudding felt <blank>.
+73. The exhaust was <blank>.
+74. The partnership was <blank>.
+75. The reception was <blank>.
+76. The attic felt <blank>.
+77. The burner was <blank>.
+78. The bedroom was <blank>.
+79. The chili was <blank>.
+80. The terrace was <blank>.
+81. The coffee tasted <blank> still.
+82. The library was <blank>.
+83. The moment was <blank>.
+84. The wind was <blank>.
+85. His breath felt <blank>.
+86. The welcome felt <blank>.
+87. The ice pack felt <blank>.
+88. The kettle was <blank>.
+89. The morning air felt <blank>.
+90. The whirlpool was <blank>.
+91. The wool felt <blank>.
+92. The mixing bowl felt <blank>.
+93. The forest air felt <blank>.
+94. The biscuits felt <blank>.
+95. The cutting board was <blank>.
+96. The exchange felt <blank>.
+97. The room was <blank>.
+98. The dining hall was <blank>.
+99. The dutch oven was <blank>.
+100. The soup mug was <blank> inside.
+101. The herbal tea felt <blank>.
+102. The space heater seemed <blank> still.
+103. The basement was <blank>.
+104. The quiche felt <blank>.
+105. The railing was <blank>.
+106. The tray felt <blank>.
+107. His nose felt <blank>.
+108. The ice shelf was <blank>.
+109. The reservoir was <blank>.
+110. The pudding cup was <blank>.
+111. The shake felt <blank>.
+112. The bog felt <blank>.
+113. The radiator felt <blank>.
+114. The smoothie felt <blank>.
+115. The spring water was <blank>.
+116. The juice felt <blank>.
+117. The meeting was <blank>.
+118. The jacket felt <blank>.
+119. The deck was <blank>.
+120. The greeting was <blank>.
+121. The connection was <blank>.
+122. Her skin felt <blank>.
+123. The greeting seemed <blank>.
+124. The argument felt <blank>.
+125. The wok was <blank>.
+126. The debate felt <blank>.
+127. The punch was <blank>.
+128. The room grew <blank> overnight.
+129. The entryway was <blank>.
+130. The vest was <blank>.
+131. The radiator became <blank>.
+132. The cobblestone was <blank> outside.
+133. The hug felt <blank> today.
+134. The outdoor air was <blank>.
+135. His hands were <blank>.
+136. The dismissal seemed <blank> lately.
+137. The ember was <blank>.
+138. The furnace was <blank>.
+139. The river water was <blank> outside.
+140. The hilltop air was <blank>.
+141. The thermal pool was <blank>.
+142. The trail felt <blank> underfoot.
+143. The thermal felt <blank> again.
+144. The attitude felt <blank>.
+145. The bath was <blank>.
+146. The conversation was <blank>.
+147. The lantern felt <blank>.
+148. The pipe felt <blank>.
+149. The negotiation felt <blank>.
+150. The rotisserie felt <blank>.
+151. The season felt <blank>.
+152. The snowbank was <blank>.
+153. The confrontation was <blank>.
+154. The ramekin felt <blank>.
+155. The condenser was <blank>.
+156. The steam room was <blank>.
+157. The glacier melt felt <blank>.
+158. The grill was <blank>.
+159. The energy felt <blank>.
+160. The skillet felt <blank>.
+161. The sweat remained <blank>.
+162. The gymnasium was <blank>.
+163. The meatballs felt <blank>.
+164. The valve felt <blank>.
+165. The cinder felt <blank>.
+166. The oven felt <blank>.
+167. The canyon was <blank>.
+168. The foyer felt <blank>.
+169. The pantry felt <blank> today.
+170. The feedback was <blank>.
+171. The interaction was <blank>.
+172. The tide felt <blank>.
+173. The desert air felt <blank>.
+174. The coastal air was <blank>.
+175. Her touch was <blank>.
+176. The dishwater remained <blank>.
+177. Her ears were <blank>.
+178. The criticism felt <blank>.
+179. The mood was <blank>.
+180. The coffee was <blank>.
+181. The bathwater was <blank> inside.
+182. The air grew <blank>.
+183. The crust felt <blank>.
+184. The cider felt <blank>.
+185. The kettle got <blank>.
+186. The mud bath felt <blank>.
+187. The bench felt <blank>.
+188. The doorknob felt <blank>.
+189. The generator was <blank>.
+190. The ground was <blank>.
+191. The ash was <blank>.
+192. The alliance felt <blank>.
+193. The veranda was <blank>.
+194. The plateau was <blank>.
+195. The morning became <blank> quickly.
+196. The concrete felt <blank>.
+197. The sweater felt <blank>.
+198. The patio felt <blank>.
+199. The message was <blank>.
+200. The engine was <blank>.
+201. The eggs were <blank>.
+202. The mist was <blank>.
+203. The friendship was <blank>.
+204. The hearth was <blank>.
+205. The breath seemed <blank>.
+206. Her neck was <blank>.
+207. The flannel was <blank>.
+208. The trough was <blank>.
+209. His back felt <blank>.
+210. The polenta became <blank>.
+211. The spring felt <blank>.
+212. Her toes were <blank>.
+213. The platter was <blank>.
+214. The plate was <blank>.
+215. The ocean water felt <blank>.
+216. The manner became <blank>.
+217. The heater felt <blank>.
+218. The pit felt <blank>.
+219. The filling was <blank>.
+220. The tunnel felt <blank> inside.
+221. The bay window was <blank> outside.
+222. The snowmelt was <blank>.
+223. The faucet was <blank> inside.
+224. The cabin was <blank>.
+225. The hot chocolate was <blank>.
+226. The vents felt <blank>.
+227. The frosting was <blank>.
+228. The spring water felt <blank>.
+229. The elevator was <blank>.
+230. The stairwell felt <blank>.
+231. The reception hall was <blank>.
+232. The handshake felt <blank>.
+233. The mittens were <blank>.
+234. The cloakroom felt <blank>.
+235. The warehouse felt <blank>.
+236. Her embrace was <blank>.
+237. The iron was <blank>.
+238. The compressor was <blank>.
+239. The thermos was <blank>.
+240. The crucible felt <blank>.
+241. Her hands felt <blank>.
+242. The indifference was <blank>.
+243. The discussion was <blank>.
+244. The ravine felt <blank>.
+245. The hug was <blank>.
+246. The night air was <blank>.
+247. The email felt <blank>.
+248. The relationship felt <blank>.
+249. The standoff was <blank>.
+250. The tension was <blank>.
+251. The cocoa was <blank>.
+252. The cauldron was <blank>.
+253. The crockpot was <blank>.
+254. The rolling pin was <blank>.
+255. The glance grew <blank>.
+256. The iced drink was <blank>.
+257. The fleece felt <blank>.
+258. The tea felt <blank>.
+259. The lobby felt <blank>.
+260. The wall felt <blank>.
+261. The boiler felt <blank>.
+262. The gumbo felt <blank> today.
+263. The air felt <blank>.
+264. The lake felt <blank>.
+265. The marsh was <blank>.
+266. The engine ran <blank>.
+267. The temperature was <blank>.
+268. The latte felt <blank>.
+269. The broth was <blank>.
+270. The gloves felt <blank>.
+271. The nozzle was <blank>.
+272. The tension felt <blank>.
+273. The kiln was <blank>.
+274. The espresso was <blank>.
+275. The sauce was <blank>.
+276. The gelatin felt <blank>.
+277. The ganache felt <blank>.
+278. The soufflé dish was <blank>.
+279. The jacuzzi felt <blank>.
+280. The mousse was <blank>.
+281. The parfait felt <blank>.
+282. The stone felt <blank>.
+283. The icicle felt <blank>.
+284. The courtyard felt <blank>.
+285. The broth tasted <blank> enough.
+286. The porch felt <blank>.
+287. The infusion felt <blank>.
+288. The soup bowl felt <blank>.
+289. The pitcher felt <blank>.
+290. The updraft seemed <blank> still.
+291. The wetland felt <blank>.
+292. The polenta felt <blank> today.
+293. The canteen was <blank>.
+294. The mudroom felt <blank>.
+295. The compote felt <blank>.
+296. The hardwood remained <blank>.
+297. The spa was <blank>.
+298. The sidewalk felt <blank> again.
+299. The lining was <blank>.
+300. The draught was <blank>.
+301. The brook was <blank>.
+302. The frost felt <blank>.
+303. The ramen broth grew <blank>.
+304. The demeanor seemed <blank> lately.
+305. The seat was <blank>.
+306. The pipe seemed <blank> still.
+307. The competition was <blank>.
+308. The balcony felt <blank>.
+309. The hilltop was <blank>.
+310. The dynamic felt <blank>.
+311. The broth felt <blank>.
+312. The kitchen was <blank>.
+313. The welcome seemed <blank>.
+314. The caramel was <blank>.
+315. The review felt <blank>.
+316. The shower felt <blank>.
+317. The spigot felt <blank> again.
+318. The duct felt <blank>.
+319. The smoker was <blank>.
+320. His shoulders felt <blank>.
+321. The cellar was <blank>.
+322. The scullery felt <blank> again.
+323. The transformer felt <blank>.
+324. The toddy felt <blank>.
+325. The breeze turned <blank> suddenly.
+326. The garage felt <blank>.
+327. The brick felt <blank>.
+328. The apology was <blank>.
+329. The seawater was <blank> inside.
+330. The floor felt <blank> underfoot.
+331. The lemonade was <blank>.
+332. The coil felt <blank>.
+333. The reply was <blank>.
+334. The gesture was <blank>.
+335. The dew felt <blank>.
+336. The rain felt <blank>.
+337. The hailstone was <blank>.
+338. The tone felt <blank>.
+339. The jam was <blank>.
+340. The feud felt <blank>.
+341. The baking sheet felt <blank>.
+342. The dishwater felt <blank> today.
+343. The puddle felt <blank>.
+344. The tile was <blank>.
+345. The hearth stone was <blank>.
+346. The beanie felt <blank>.
+347. The pool was <blank>.
+348. The skating pond was <blank>.
+349. The shoreline was <blank>.
+350. The ice rink felt <blank>.
+351. The forecast was <blank>.
+352. The colander felt <blank>.
+353. The vibe was <blank>.
+354. The feedback seemed <blank>.
+355. The tap water was <blank>.
+356. The waffles were <blank>.
+357. The overture seemed <blank> lately.
+358. The warm compress seemed <blank>.
+359. The oatmeal was <blank>.
+360. His arms felt <blank>.
+361. The thermal shirt felt <blank>.
+362. The hot spring felt <blank>.
+363. The stew felt <blank>.
+364. The summit felt <blank>.
+365. The pizza was <blank>.
+366. The chapel felt <blank>.
+367. The air felt <blank>.
+368. The soup smelled <blank> already.
+369. The sweat seemed <blank> still.
+370. His handshake felt <blank>.
+371. The breeze was <blank>.
+372. The conservatory felt <blank>.
+373. The broiler was <blank>.
+374. The snowdrift felt <blank>.
+375. The bond felt <blank>.
+376. The waiting room felt <blank>.
+377. The vestibule grew <blank>.
+378. The farewell felt <blank>.
+379. The thermostat felt <blank>.
+380. Her lips were <blank>.
+381. The breath was <blank>.
+382. The griddle felt <blank>.
+383. The sidewalk seemed <blank> still.
+384. The casserole was <blank>.
+385. The valley air felt <blank>.
+386. The basin felt <blank>.
+387. The blanket felt <blank> enough.
+388. The hug was <blank> inside.
+389. The socks felt <blank>.
+390. The mulled wine was <blank>.
+391. The mountain air was <blank>.
+392. The mood felt <blank>.
+393. The slow cooker felt <blank>.
+394. The climate was <blank>.
+395. The bath turned <blank> quickly.
+396. The chimney pipe was <blank>.
+397. The nod seemed <blank>.
+398. The flask felt <blank>.
+399. The linoleum felt <blank> again.
+400. The iron skillet was <blank>.
+401. The gully felt <blank>.
+402. The glacier was <blank>.
+403. The sunroom was <blank>.
+404. The toast felt <blank>.
+405. The plunge pool was <blank>.
+406. The coat was <blank>.
+407. The risotto felt <blank> again.
+408. The closeness was <blank>.
+409. The cave was <blank>.
+410. The knife handle felt <blank>.
+411. The silence felt <blank>.
+412. The pan was <blank>.
+413. The rapport felt <blank>.
+414. The affection felt <blank>.
+415. The sauna felt <blank>.
+416. The river was <blank>.
+417. The pathway turned <blank>.
+418. The window was <blank>.
+419. The bowl felt <blank>.
+420. The scarf was <blank>.
+421. The water seemed <blank>.
+422. The stockpot felt <blank>.
+423. The locker room felt <blank>.
+424. The afternoon felt <blank>.
+425. The custard was <blank>.
+426. The lobby was <blank>.
+427. The beverage felt <blank>.
+428. The gravy felt <blank>.
+429. The lake appeared <blank>.
+430. The metal was <blank>.
+431. The warmth felt <blank>.
+432. The pipes were <blank>.
+433. The forge was <blank>.
+434. The greenhouse was <blank>.
+435. The pastry brush felt <blank>.
+436. The encounter felt <blank>.
+437. The chowder was <blank> outside.
+438. The radiator seemed <blank>.
+439. The collaboration was <blank>.
+440. The atmosphere felt <blank>.
+441. The rice was <blank>.
+442. The dough was <blank>.
+443. The comment was <blank>.
+444. The tundra felt <blank>.
+445. The carafe felt <blank>.
+446. The updraft turned <blank>.
+447. The water felt <blank>.
+448. The campfire was <blank>.
+449. The night grew <blank> fast.
+450. The flagstone was <blank> inside.
+451. The response felt <blank>.
+452. The syrup felt <blank>.
+453. The hoodie was <blank>.
+454. His cheeks felt <blank>.
+455. The circuit was <blank>.
+456. The stare grew <blank>.
+457. The rivalry was <blank>.
+458. The fireplace felt <blank>.
+459. The candle was <blank>.
+460. Her feet were <blank>.
+461. The sand felt <blank>.
+462. The blanket was <blank>.
+463. The pressure cooker was <blank>.
+464. The pot felt <blank>.
+465. The pie was <blank>.
+466. The flame felt <blank>.
+467. The truce felt <blank>.
+468. The furnace felt <blank>.
+469. The glass was <blank>.
+470. Her palms were <blank>.
+471. The stream was <blank>.
+472. The flush grew <blank>.
+473. The well water was <blank> outside.
+474. The waterfall was <blank>.
+475. The stove was <blank>.
+476. The solarium was <blank>.
+477. The ridge was <blank>.
+478. The tongs were <blank>.
+479. The stare was <blank>.
+480. The introduction was <blank> outside.
+481. The metal felt <blank> underfoot.
+482. The barrel felt <blank>.
+483. The groundwater was <blank> outside.
+484. The fountain water was <blank>.
+485. The gravy boat was <blank> enough.
+486. The coal felt <blank>.
+487. The down jacket was <blank>.
+488. The garden was <blank>.
+489. The stove was <blank>.
+490. The ladle was <blank>.
+491. The tonic was <blank>.
+492. The shower turned <blank> unexpectedly.
+493. The bisque felt <blank> today.
+494. The rivalry felt <blank>.
+495. The pond felt <blank>.
+496. The stone felt <blank>.
+497. The decanter was <blank>.
+498. The honey felt <blank>.
+499. The pajamas felt <blank>.
+500. The dumplings were <blank>.
