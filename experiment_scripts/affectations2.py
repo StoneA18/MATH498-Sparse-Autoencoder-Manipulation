@@ -5,11 +5,11 @@ from pathlib import Path
 import random
 import torch
 
-from steering_utils import load_gpt2_small, load_sae_from_neuronpedia, Dist
+from steering_utils import load_gpt2_small, load_sae_from_neuronpedia, Dist, load_gemma_3_270m_it
 
 _STATS_PATH  = Path("experiment_scripts/experiment_data/affectations2/affectations2_stats.csv")
 _LOG_PATH    = Path("experiment_scripts/experiment_data/affectations2/responses.log")
-_CLAMP_PROMPT = "The stove is"
+_CLAMP_PROMPT = "What is the weather like today?"  # prompt to test effect of clamps
 _OUT_TOKENS = 150
 
 HOT_WORDS  = ['hot','warm','scorching','blazing','sweltering','sizzling','boiling','torrid','searing','broiling']
@@ -35,8 +35,12 @@ def affectation_experiment_v2(mode=None, top_n=10):
                    _CLAMP_PROMPT with and without clamps.  Both responses are
                    printed and appended to responses.log.
     """
-    model = load_gpt2_small()
-    sae   = load_sae_from_neuronpedia("gpt2-small-res-jb", "blocks.8.hook_resid_pre")
+    #model = load_gpt2_small()
+    #sae   = load_sae_from_neuronpedia("gpt2-small-res-jb", "blocks.8.hook_resid_pre")
+
+    model = load_gemma_3_270m_it()
+    sae   = load_sae_from_neuronpedia("gemma-scope-2-270m-it-res", "layer_5_width_16k_l0_medium")
+
     model.add_sae(sae)
 
     # ------------------------------------------------------------------
@@ -71,7 +75,7 @@ def affectation_experiment_v2(mode=None, top_n=10):
         print(f"  {'feature':>8}  {'delta_count':>11}  {'avg_hot':>9}")
         for fid, delta, avg_hot, std in top:
             print(f"  {fid:>8}  {delta:>+11}  {avg_hot:>9.4f}")
-            sae.clamp(fid, 1.5*avg_hot)
+            sae.clamp(fid, 0.8*avg_hot)
 
         steered = model.generate(_CLAMP_PROMPT, max_tokens=_OUT_TOKENS)
         sae.clear()
@@ -83,7 +87,7 @@ def affectation_experiment_v2(mode=None, top_n=10):
         print(f"  {'feature':>8}  {'delta_count':>11}  {'avg_hot':>9}")
         for fid, delta, avg_hot, std in top:
             print(f"  {fid:>8}  {delta:>+11}  {avg_hot:>9.4f}")
-            dist = Dist('normal', avg_hot*1.5, std)
+            dist = Dist('normal', avg_hot, std)
             sae.cond_dist(fid, 0.3, dist)
 
         steered2 = model.generate(_CLAMP_PROMPT, max_tokens=_OUT_TOKENS)

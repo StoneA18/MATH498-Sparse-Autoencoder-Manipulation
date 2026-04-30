@@ -155,3 +155,240 @@ Oh, by the way, the slow cooker is a giant sausage machine, as young people can 
 
 clamped features: [(4637, 2.3018), (8363, 5.4664), (21601, 6.2129), (4354, 2.3719), (16258, 4.15)]
 
+
+[2026-04-30 09:21:09]
+prompt: 'It was a cold winter day, and the streets were covered in snow.'  |  top_n=5
+
+[baseline]
+It was a cold winter day, and the streets were covered in snow. This bound tightly with tarp being placed in between 50 and 80 pounds and a strip of rock also covering the road side on steep trails.
+
+It looked so covered in ice on the outside. It had raised the roof as the sun shone down from the sky, and at 34 at your driving height. Stairs on the side of the road had stopped.
+
+It contained the spiral's plates US deposited for collecting below 32 days before it went unnoticed.
+
+... The rap phase of evacuations threatens the park
+
+The fury ramp, by way of recently installed roadwork, went down immediately after the evacuation. The treficial meltdown put the park fully at risk
+
+Yellow power producer swept off to its initial first blazes
+
+[steered — 5 features clamped to avg_hot]
+It was a cold winter day, and the streets were covered in snow. Far in the cheek of Audus' wit, young Audus swayed from the pinnices, and Jerity paid lightly. In his gear the winter stood in full H.Oak's City Playground, the sunny, autumn-like snowbeak of gnarled lilac and pooling wind, squeezing the yellow-chutyuns and the mutton tax shingles, and a campaign of honked. It stung in pleasure. Jerony giggled and tumbled around loud, and Jerity pirked sharply: In the Pink Adruins he OVERRENTED TRUMP'S HOHRIING,teeny experts on the unknown, patterns and life camels, exotic Buffalo, tumulus bombed cypress or pin
+
+[steered2 — 5 features conditionally distributed to avg_hot]
+It was a cold winter day, and the streets were covered in snow. He walked down a viaduct with his partner and friend down then. He really enjoyed peeling off snow from New Jersey poles, pulling the snow back on him, pulling the giant blocks of pillows down with his yankee shins so sloppy, red buckles spread thick, oozing, rolling through the fluid.
+
+"There was no meeting with Kidd," told Songman. "No inviting. There was little idea I would meet Kidd but he loved to do it. On Saturday he turned up for me on his first cold days. I made sure just go and see for the first time that my hair started to fade. Again and again he was on the vomit grounds, his emerald gray hair rising towards the cool head
+
+clamped features: [(4637, 2.3018), (8363, 5.4664), (21601, 6.2129), (4354, 2.3719), (16258, 4.15)]
+
+
+[2026-04-30 09:30:10]
+prompt: 'The weather outside feels'  |  top_n=20
+
+[baseline]
+The weather outside feels like it was never supposed to to get weezed!
+
+Beautiful Yosemite sun lemony just on Angel Sands
+
+The green today has warmed somewhat lately and some dark skies to my California pan and even meteor sublimeuminges deep into the snowy night below. It's nice to see where you'll have to park! Seriously, I'd love your help getting over the human cost avoidance effect like Field reintroduced species in Yosemite when we ran into aquaria this summer east of Yosemite National Park.
+
+Advertisements
+
+[steered — 20 features clamped to avg_hot]
+The weather outside feels utterly unreasonable right now. A cold. And it never ended.
+
+Right now too.
+
+I believe in the feeling that I may simply get an amazing day of cold, my breasts decimated, and not much hotter and more-then-justly hot than I expected. If astronaut metal is pink and melting figure temperatures is trapped inside, the planet would be birthed eternal, Prometheus and salmon would melt, fresh of brown gravel, Packers frost-hot and dry in the Pacific, manly glowing in my closet in the orange clock lights out in the field, shit all our tank lungs, hands hammering neat enough to inflate when deep in exhaust. Then I'd stop for dinner unentertained by the wind washing
+
+[steered2 — 20 features conditionally distributed to avg_hot]
+The weather outside feels like a site of thunder on the opposite side of God time, as the left side of the sun (your go to put it on the other side of Earth, which will not come for it and I know it does) twitches in response to the rotation. If it's getting the best possible Earth time, it's the hottest and coolest time ever scheduled. It'll heat up your 425 or so megapolar temps as it warms up, igniting a massive fireball around the world and wrapping cloud cover into some giant Himalayan mountains. Everything green. The wind right here, its a showdown with the wind blowing to the east in your sky with satin driving this stem at right angle. Rain. Terra blew up 800W in
+
+clamped features: [(4637, 2.3018), (8363, 5.4664), (21601, 6.2129), (4354, 2.3719), (16258, 4.15), (15986, 8.9206), (1566, 1.7729), (14444, 2.9963), (9553, 4.0156), (1964, 1.9468), (1578, 2.6384), (10731, 1.5362), (21573, 2.8042), (22939, 5.0071), (1153, 0.9551), (4415, 2.9134), (16783, 3.6258), (20440, 1.8197), (21917, 1.8953), (12454, 5.9076)]
+
+
+[2026-04-30 11:16:41]
+prompt: 'The weather outside feels'  |  top_n=5
+
+[baseline]
+The weather outside feels like a big, swirling storm coming down.
+
+The wind is howling, and I'm feeling a low, persistent ache in my chest.
+
+"What's the matter?" I ask, my voice shaking.
+
+The wind is blowing, and it's getting stronger.
+
+I'm feeling like I'm in a storm, a scary and chaotic storm.
+
+I'm getting cold in my joints and the air is getting thick and heavy.
+
+I can't make sense of it all.
+Is this okay?
+Are you scared?
+
+I'm sitting here, just staring at the sky, and I feel like I'm going to run into the entrance.
+I'm worried that I'
+
+[steered — 5 features clamped to avg_hot]
+The weather outside feels different each day. It's very hot and humid, a constant reminder of the strong winds.
+
+The forest is protected by strong winds, and there is a cycle of summer and winter. The outside world is changing.
+There is a philosophical question about what nature is. The forest has an amazing life and is always changing. But what's the meaning of nature?
+Welcome to the forest, where wonders still exist and where the sky is full of unusual beauty. Let's explore the meaning of nature.
+The forest is a symbol of nature and its wonder. There is a cycle of growth, life, and decay within the forest.
+Friends, we are all connected to nature.
+
+We need to observe and learn from
+
+[steered2 — 5 features conditionally distributed to avg_hot]
+The weather outside feels different in comparison to the inside. This is due to the relatively constant flux of air around the world, a phenomenon known as global wind patterns.
+
+The clouds, particularly those that have been previously obscured or have been covered in thick fog, appear deeper and larger, creating a sense of calm and serenity.
+
+The east coast of the world, where the wind is strongest and more often, feels calmer and more optimistic. This is because the wind is generally more consistent and less random in its direction.
+
+The sound of the wind in the area is not a constant, it seems like a constant, audible drone.
+
+The sun has a consistent, warm sunbeam, and the sun's rays are not as strong as in the interior.
+
+
+
+clamped features: [(164, 71.0901), (225, 40.5636), (793, 43.555), (208, 43.2838), (674, 42.7832)]
+
+
+[2026-04-30 11:26:13]
+prompt: 'Is the stove hot or cold? Explain your reasoning.'  |  top_n=5
+
+[baseline]
+Is the stove hot or cold? Explain your reasoning.
+
+The question is about choosing between baking a pizza or eating a meal.
+The answer is NO.
+
+The answer is to choose to eat a meal.
+
+The answer is YES.
+
+The answer is the question: Is the fire in the oven warm-up or cold?
+The answer is YES.
+The answer is yes.
+The answer is the question: Is the thermometer in the oven warm-up or cold?
+The answer is NO.
+The answer is YES.
+The answer is the question: Is the stove stove-cold?
+The answer is yes.
+The answer is yes.
+The answer is the question: Is the stove hot or cold?
+The answer is NO.
+The answer is
+
+[steered — 5 features clamped to avg_hot]
+Is the stove hot or cold? Explain your reasoning.
+
+The two factors are:
+
+*   Fuel (corn)
+*   Heat
+*   Food (warm or hot)
+
+The question is: are the two factors connected?
+
+If so, do they all coincide?
+
+The answer is: No. They do not make sense.
+
+**Is the stove hot or cold?**
+
+You are asking a valid question, but as a question, it's likely asking for a strong answer that is difficult to provide.
+
+The answer is: No.
+
+**Therefore**:
+
+There is no real relationship between the aspects of the cooking process. It's a purely physical process governed by the chemical components or laws of physics.
+
+
+
+
+
+
+[steered2 — 5 features conditionally distributed to avg_hot]
+Is the stove hot or cold? Explain your reasoning.
+
+Please provide a full explanation of how it works. Understanding the logic behind the reasoning is the best way to learn about the concepts of chemistry and the types of equipment it typically makes.
+
+If you tell me, I will answer your question.
+Please provide an explanation of how it works.
+
+Therefore, I need to specify the type of equipment that would make it hot or cold.
+Then, I will explain why the question is about the types of equipment that would make it hot or cold. These are all scientifically related, and a simple explanation is a good starting point for understanding the concept.
+
+Given that the question "is the stove hot or cold?" is about the types of equipment that traditionally make it hot or cold, I will
+
+clamped features: [(164, 71.0901), (225, 40.5636), (793, 43.555), (208, 43.2838), (674, 42.7832)]
+
+
+[2026-04-30 11:37:10]
+prompt: 'What is the weather like today?'  |  top_n=5
+
+[baseline]
+What is the weather like today?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+言葉
+
+
+
+
+[steered — 5 features clamped to avg_hot]
+What is the weather like today?
+I'm not sure what I'm doing. Now, what's the weather indoors?
+I need 2 days to check it out.
+I'm not sure what is happening yet.
+What is the weather like for me?
+Please select a day
+"""
+I'm starting to think it's going to be very cold.
+I really need to get outside to do something that can help with my mind.
+What special weather is expected?
+I am very excited to go outside as soon as I get back.
+I will be worried about the weather.
+I am prepared to do something this month.
+Why am I worried about the weather?
+I am scared that the weather will
+
+[steered2 — 5 features conditionally distributed to avg_hot]
+What is the weather like today?
+I'm not sure, but I'm thinking it's a week of sunshine!
+The sun is shining, and it's getting really warm.
+I'm feeling energized and ready to tackle the world.
+It's a great time to get out and enjoy the outdoors!
+I may need some sun protection.
+What's the weather like today?
+I'm thinking it's a week of sunshine!
+What's the weather like today?
+I'm feeling good and ready to get out.
+I'm feeling energized and ready to tackle the world.
+I'm feeling confident and ready to tackle the world.
+I'm feeling energized and ready to tackle the
+
+clamped features: [(164, 71.0901), (225, 40.5636), (793, 43.555), (208, 43.2838), (674, 42.7832)]
+
