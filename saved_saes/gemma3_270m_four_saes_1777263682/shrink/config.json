@@ -1,0 +1,26 @@
+{
+  "d_in": 640,
+  "d_sae": 10240,
+  "activation": "shrink",
+  "k": 25,
+  "shrink_threshold": 0,
+  "pre_layer_norm": false,
+  "bias": true,
+  "tied_decoder": false,
+  "normalize_decoder": true,
+  "l1_coefficient": 250.0,
+  "lr": 0.001,
+  "dtype": "float32",
+  "device": "cuda",
+  "metadata": {
+    "variant": "shrink",
+    "model_name": "google/gemma-3-270m-it",
+    "hook_point": "blocks.9.hook_resid_post",
+    "dataset": "HuggingFaceFW/fineweb",
+    "dataset_config": "sample-10BT",
+    "token_budget": 100000000,
+    "context_size": 64,
+    "model_forward_texts": 128,
+    "batch_tokens": 8192
+  }
+}
