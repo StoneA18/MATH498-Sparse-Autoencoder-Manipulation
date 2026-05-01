@@ -6,6 +6,7 @@ import importlib.metadata
 import json
 import math
 import random
+import re
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -32,7 +33,13 @@ def _version_with_torch_fallback(package_name: str) -> str:
 
 importlib.metadata.version = _version_with_torch_fallback
 
-from trainable_sae import HookPointSpec, SAEConfig, TrainableSAE, load_hooked_transformer, resolve_device
+from trainable_sae import (
+    HookPointSpec,
+    SAEConfig,
+    TrainableSAE,
+    load_hooked_transformer,
+    resolve_device,
+)
 
 
 @dataclass
@@ -53,22 +60,48 @@ class ActivationBatch:
 
 
 SAE_VARIANTS = (
-    # {"name": "relu", "activation": "relu", "l1_coefficient": 250.},
-    # {"name": "shrink", "activation": "shrink", "l1_coefficient": 400},
-    # {"name": "topk", "activation": "topk", "l1_coefficient": 0.0},
-    {"name": "topbottomk", "activation": "tbk", "l1_coefficient": 0.0},
+    # {"name": "relu", "activation": "relu", "l1_coef": 250.},
+    {"name": "shrink", "activation": "shrink", "l1_coef": 400},
+    # {"name": "topk", "activation": "topk", "l1_coef": 0.0},
+    # {"name": "topbottomk", "activation": "tbk", "l1_coef": 0.0},
 )
+
+DEFAULT_L1_BY_ACTIVATION = {
+    "relu": 250.0,
+    "gelu": 1e-4,
+    "sigmoid": 1e-4,
+    "tanh": 1e-4,
+    "identity": 1e-4,
+    "shrink": 400.0,
+    "softshrink": 400.0,
+    "soft_shrink": 400.0,
+    "soft_threshold": 400.0,
+    "topk": 0.0,
+    "tbk": 0.0,
+    "topbottomk": 0.0,
+    "top_bottom_k": 0.0,
+}
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train ReLU, TopK, TopBottomK, and shrink SAEs.")
+    parser = argparse.ArgumentParser(description="Train configurable SAEs.")
     parser.add_argument("--model", default="google/gemma-3-270m-it")
     parser.add_argument("--dataset", default="HuggingFaceFW/fineweb")
     parser.add_argument("--dataset-config", default="sample-10BT")
     parser.add_argument("--split", default="train")
     parser.add_argument("--questions-path", type=Path, default=PROJECT_ROOT / "samples/questions_train.txt")
     parser.add_argument("--question-repeats", type=int, default=3)
-    parser.add_argument("--token-budget", type=int, default=100_000_000)
+    parser.add_argument(
+        "--activations",
+        nargs="+",
+        default=None,
+        choices=tuple(DEFAULT_L1_BY_ACTIVATION),
+        help=(
+            "Built-in activation names to train, e.g. --activations relu shrink tbk. "
+            "When omitted, uses the script's SAE_VARIANTS defaults."
+        ),
+    )
+    parser.add_argument("--token-budget", type=int, default=10_000_000)
     parser.add_argument("--context-size", type=int, default=64)
     parser.add_argument("--model-forward-texts", type=int, default=128)
     parser.add_argument("--batch-tokens", type=int, default=1024)
@@ -77,7 +110,17 @@ def parse_args() -> argparse.Namespace:
         default="middle",
         help=(
             "Transformer block layer for SAE activations: 'middle', 'last'/'end', "
-            "or an explicit zero-indexed layer number."
+            "or an explicit zero-indexed layer number. Ignored when --hook-index "
+            "or --hook-point is set."
+        ),
+    )
+    parser.add_argument(
+        "--hook-index",
+        type=int,
+        default=None,
+        help=(
+            "Explicit zero-indexed Transformer block layer for SAE activations. "
+            "Equivalent to --hook-layer <index>, but clearer for scripts."
         ),
     )
     parser.add_argument(
@@ -85,6 +128,15 @@ def parse_args() -> argparse.Namespace:
         default="resid_post",
         choices=("resid_pre", "resid_post", "mlp_out", "attn_out"),
         help="TransformerLens hook site within the selected block.",
+    )
+    parser.add_argument(
+        "--hook-point",
+        default=None,
+        help=(
+            "Full TransformerLens hook name to train on, e.g. "
+            "blocks.0.hook_resid_pre. Overrides --hook-layer/--hook-index "
+            "and --hook-site."
+        ),
     )
     parser.add_argument("--expansion-factor", type=int, default=32)
     parser.add_argument("--top-k", type=int, default=50)
@@ -97,7 +149,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--k-warmup-start-frac",
         type=float,
-        default=0.30,
+        default=0.5,
         help="Initial k as a fraction of d_sae when --k-warmup is enabled.",
     )
     parser.add_argument(
@@ -106,7 +158,12 @@ def parse_args() -> argparse.Namespace:
         default=0.20,
         help="Fraction of total training steps over which k reaches --top-k.",
     )
-    parser.add_argument("--shrink-threshold", type=float, default=.5)
+    parser.add_argument(
+        "--shrink-threshold",
+        type=float,
+        default=.5,
+        help="Target soft-threshold for shrink SAEs, warmed from 0 over the first 20%% of training.",
+    )
     parser.add_argument(
         "--loss-objective",
         default="reconstruction",
@@ -124,6 +181,15 @@ def parse_args() -> argparse.Namespace:
             "Context feature reuse penalty coefficient. When >0, batches preserve "
             "the text/token axis and penalize repeated use of the same feature "
             "across words in a context."
+        ),
+    )
+    parser.add_argument(
+        "--l1-coef",
+        type=float,
+        default=None,
+        help=(
+            "Override the per-token feature L1 coefficient for every trained SAE. "
+            "When omitted, each variant uses its built-in default."
         ),
     )
     parser.add_argument(
@@ -171,13 +237,28 @@ def parse_args() -> argparse.Namespace:
         "--target-nonzero-features",
         type=float,
         default=None,
-        help="Target average number of non-zero features per activation token for ReLU/shrink SAEs.",
+        help=(
+            "Target average number of non-zero features per activation token. "
+            "For ReLU/shrink SAEs this feedback adjusts the L1 coefficient."
+        ),
     )
     parser.add_argument(
         "--sparsity-control-rate",
         type=float,
+        default=0.005,
+        help="Log-space feedback update rate for target sparsity control.",
+    )
+    parser.add_argument(
+        "--sparsity-control-max-log-step",
+        type=float,
+        default=0.002,
+        help="Maximum absolute log change applied to the L1 coefficient per training step.",
+    )
+    parser.add_argument(
+        "--sparsity-control-deadband",
+        type=float,
         default=0.05,
-        help="Feedback update rate for target sparsity control.",
+        help="Relative sparsity error tolerated before changing the L1 coefficient.",
     )
     parser.add_argument(
         "--sparsity-ema-beta",
@@ -185,17 +266,47 @@ def parse_args() -> argparse.Namespace:
         default=0.95,
         help="EMA smoothing factor for measured average non-zero features.",
     )
+    parser.add_argument(
+        "--min-l1-coef",
+        type=float,
+        default=1e-8,
+        help="Minimum L1 coefficient used by target sparsity control.",
+    )
+    parser.add_argument(
+        "--max-l1-coef",
+        type=float,
+        default=1e6,
+        help="Maximum L1 coefficient used by target sparsity control.",
+    )
     return parser.parse_args()
 
 
 def resolve_run_name(run_name: Optional[str]) -> str:
     if run_name is None or not run_name.strip():
-        return f"gemma3_270m_four_saes_{int(time.time())}"
+        return f"gemma3_270m_sae_{int(time.time())}"
 
     path = Path(run_name)
     if path.is_absolute() or ".." in path.parts:
         raise ValueError("--run-name must be a relative name under --save-root.")
     return path.as_posix()
+
+
+def default_l1_for_activation(activation: str) -> float:
+    return DEFAULT_L1_BY_ACTIVATION.get(activation.lower(), 1e-4)
+
+
+def resolve_sae_variants(args: argparse.Namespace) -> list[dict[str, object]]:
+    if args.activations is None:
+        return [dict(variant) for variant in SAE_VARIANTS]
+
+    return [
+        {
+            "name": activation,
+            "activation": activation,
+            "l1_coef": default_l1_for_activation(activation),
+        }
+        for activation in args.activations
+    ]
 
 
 def read_questions(path: Path, repeats: int) -> list[str]:
@@ -242,25 +353,49 @@ def chain_questions_then_dataset(
     yield from iter_dataset_texts(dataset_name, dataset_config, split)
 
 
-def resolve_training_hook_point(model, hook_layer: str, hook_site: str) -> tuple[str, int]:
-    n_layers = int(model.cfg.n_layers)
-    normalized_layer = hook_layer.strip().lower()
+def layer_from_hook_point(hook_point: str) -> int:
+    match = re.fullmatch(r"blocks\.(\d+)\.hook_[A-Za-z0-9_]+", hook_point)
+    return int(match.group(1)) if match else -1
 
-    if normalized_layer in ("middle", "mid"):
-        layer = n_layers // 2
-    elif normalized_layer in ("last", "end", "final"):
-        layer = n_layers - 1
-    else:
-        try:
-            layer = int(normalized_layer)
-        except ValueError as exc:
+
+def resolve_training_hook_point(
+    model,
+    hook_layer: str,
+    hook_site: str,
+    hook_index: Optional[int] = None,
+    hook_point: Optional[str] = None,
+) -> tuple[str, int]:
+    n_layers = int(model.cfg.n_layers)
+    if hook_point is not None and hook_point.strip():
+        resolved_hook_point = hook_point.strip()
+        layer = layer_from_hook_point(resolved_hook_point)
+        if layer >= n_layers:
             raise ValueError(
-                "--hook-layer must be 'middle', 'last'/'end', or a zero-indexed integer; "
-                f"got {hook_layer!r}."
-            ) from exc
+                f"--hook-point resolved to layer {layer}, but model has layers 0..{n_layers - 1}."
+            )
+        return resolved_hook_point, layer
+
+    if hook_index is not None:
+        layer = hook_index
+    else:
+        normalized_layer = hook_layer.strip().lower()
+
+        if normalized_layer in ("middle", "mid"):
+            layer = n_layers // 2
+        elif normalized_layer in ("last", "end", "final"):
+            layer = n_layers - 1
+        else:
+            try:
+                layer = int(normalized_layer)
+            except ValueError as exc:
+                raise ValueError(
+                    "--hook-layer must be 'middle', 'last'/'end', or a zero-indexed integer; "
+                    f"got {hook_layer!r}."
+                ) from exc
 
     if not 0 <= layer < n_layers:
-        raise ValueError(f"--hook-layer resolved to {layer}, but model has layers 0..{n_layers - 1}.")
+        source = "--hook-index" if hook_index is not None else "--hook-layer"
+        raise ValueError(f"{source} resolved to {layer}, but model has layers 0..{n_layers - 1}.")
 
     return HookPointSpec(layer=layer, site=hook_site).name, layer
 
@@ -471,6 +606,12 @@ def set_sae_k(sae: TrainableSAE, k: int) -> None:
         sae.activation_fn.k = k
 
 
+def set_shrink_threshold(sae: TrainableSAE, threshold: float) -> None:
+    sae.cfg.shrink_threshold = float(threshold)
+    if isinstance(sae.activation_fn, torch.nn.Module) and hasattr(sae.activation_fn, "threshold"):
+        sae.activation_fn.threshold = float(threshold)
+
+
 def k_for_step(
     step: int,
     target_k: int,
@@ -498,15 +639,45 @@ def make_k_warmup_config(args: argparse.Namespace, sae: TrainableSAE, total_step
     return {"target_k": target_k, "start_k": start_k, "warmup_steps": warmup_steps}
 
 
+def make_shrink_threshold_warmup_config(
+    sae: TrainableSAE,
+    total_steps: int,
+    training_frac: float = 0.20,
+) -> Optional[dict[str, float]]:
+    activation = sae.cfg.activation.lower()
+    if activation not in ("shrink", "softshrink", "soft_shrink", "soft_threshold"):
+        return None
+
+    target_threshold = float(sae.cfg.shrink_threshold)
+    warmup_steps = max(1, round(total_steps * training_frac))
+    return {
+        "target_threshold": target_threshold,
+        "warmup_steps": float(warmup_steps),
+    }
+
+
+def shrink_threshold_for_step(step: int, target_threshold: float, warmup_steps: int) -> float:
+    if warmup_steps <= 1:
+        return target_threshold
+    progress = min(max((step - 1) / (warmup_steps - 1), 0.0), 1.0)
+    return progress * target_threshold
+
+
 def build_sae(
     args: argparse.Namespace,
     variant: dict[str, object],
     d_in: int,
     hook_point: str,
+    hook_layer: int,
     device: str,
     run_dir: Path,
 ):
     total_steps = args.max_steps or max(1, args.token_budget // args.batch_tokens)
+    l1_coef = (
+        float(args.l1_coef)
+        if args.l1_coef is not None
+        else float(variant["l1_coef"])
+    )
 
     cfg = SAEConfig(
         d_in=d_in,
@@ -516,7 +687,7 @@ def build_sae(
         shrink_threshold=args.shrink_threshold,
         pre_layer_norm=args.pre_layer_norm,
         lr=args.lr,
-        l1_coefficient=float(variant["l1_coefficient"]),
+        l1_coefficient=l1_coef,
         l1_context_coef=args.l1_context_coef,
         dtype=args.sae_dtype,
         device=device,
@@ -524,7 +695,10 @@ def build_sae(
             "variant": variant["name"],
             "model_name": args.model,
             "hook_point": hook_point,
-            "hook_layer": args.hook_layer,
+            "hook_layer": hook_layer,
+            "hook_layer_arg": args.hook_layer,
+            "hook_index_arg": args.hook_index,
+            "hook_point_arg": args.hook_point,
             "hook_site": args.hook_site,
             "dataset": args.dataset,
             "dataset_config": args.dataset_config,
@@ -533,6 +707,7 @@ def build_sae(
             "model_forward_texts": args.model_forward_texts,
             "batch_tokens": args.batch_tokens,
             "loss_objective": args.loss_objective,
+            "l1_coef": l1_coef,
             "l1_context_coef": args.l1_context_coef,
             "k_warmup_fraction": args.k_warmup_fraction,
             "k_warmup_decay_rate": args.k_warmup_decay_rate,
@@ -564,13 +739,27 @@ def make_target_sparsity_udf(
     target_nonzero_features: Optional[float],
     control_rate: float,
     ema_beta: float,
+    max_log_step: float,
+    deadband: float,
+    min_l1_coef: float,
+    max_l1_coef: float,
 ) -> Optional[Callable[[TrainableSAE, dict[str, float]], None]]:
     if target_nonzero_features is None:
         return None
     if target_nonzero_features <= 0:
         raise ValueError("--target-nonzero-features must be positive.")
+    if control_rate < 0:
+        raise ValueError("--sparsity-control-rate must be non-negative.")
     if not 0 <= ema_beta < 1:
         raise ValueError("--sparsity-ema-beta must be in [0, 1).")
+    if max_log_step < 0:
+        raise ValueError("--sparsity-control-max-log-step must be non-negative.")
+    if deadband < 0:
+        raise ValueError("--sparsity-control-deadband must be non-negative.")
+    if min_l1_coef < 0:
+        raise ValueError("--min-l1-coef must be non-negative.")
+    if max_l1_coef < min_l1_coef:
+        raise ValueError("--max-l1-coef must be greater than or equal to --min-l1-coef.")
 
     ema_nonzero: Optional[float] = None
 
@@ -578,23 +767,39 @@ def make_target_sparsity_udf(
         nonlocal ema_nonzero
         avg_nonzero = metrics["avg_nonzero_features"]
         ema_nonzero = avg_nonzero if ema_nonzero is None else ema_beta * ema_nonzero + (1 - ema_beta) * avg_nonzero
-        error = (ema_nonzero - target_nonzero_features) / target_nonzero_features
-        multiplier = float(torch.exp(torch.tensor(control_rate * error)).item())
+        ratio = max(float(ema_nonzero) / target_nonzero_features, 1e-12)
+        relative_error = ratio - 1.0
+        log_error = math.log(ratio)
+        deadband_log = math.log1p(deadband)
+        controlled_log_error = 0.0
+        if abs(log_error) > deadband_log:
+            controlled_log_error = math.copysign(abs(log_error) - deadband_log, log_error)
+        raw_log_update = control_rate * controlled_log_error
+        log_update = max(-max_log_step, min(max_log_step, raw_log_update))
+        multiplier = math.exp(log_update)
 
         activation = sae.cfg.activation.lower()
-        if activation == "relu":
-            sae.cfg.l1_coefficient = max(0.0, sae.cfg.l1_coefficient * multiplier)
-            metrics["l1_coefficient"] = float(sae.cfg.l1_coefficient)
-        elif activation in ("shrink", "softshrink", "soft_shrink", "soft_threshold"):
-            new_threshold = max(0.0, sae.cfg.shrink_threshold * multiplier)
-            sae.cfg.shrink_threshold = new_threshold
-            if isinstance(sae.activation_fn, torch.nn.Module) and hasattr(sae.activation_fn, "threshold"):
-                sae.activation_fn.threshold = float(new_threshold)
-            metrics["shrink_threshold"] = float(new_threshold)
+        is_l1_controlled_activation = activation == "relu" or activation in (
+            "shrink",
+            "softshrink",
+            "soft_shrink",
+            "soft_threshold",
+        )
+        if is_l1_controlled_activation:
+            current_l1 = float(sae.cfg.l1_coefficient)
+            if current_l1 <= 0.0 and controlled_log_error > 0.0:
+                current_l1 = min_l1_coef
+            new_l1 = current_l1 * multiplier
+            sae.cfg.l1_coefficient = max(min_l1_coef, min(max_l1_coef, new_l1))
+            metrics["l1_coef"] = float(sae.cfg.l1_coefficient)
+            metrics["l1_coef_multiplier"] = float(multiplier)
 
         metrics["target_nonzero_features"] = float(target_nonzero_features)
         metrics["ema_nonzero_features"] = float(ema_nonzero)
-        metrics["sparsity_error"] = float(error)
+        metrics["sparsity_error"] = float(relative_error)
+        metrics["sparsity_ratio"] = float(ratio)
+        metrics["sparsity_log_error"] = float(log_error)
+        metrics["sparsity_log_update"] = float(log_update)
 
     return target_sparsity_udf
 
@@ -676,6 +881,11 @@ def main() -> None:
         raise ValueError("--k-warmup-fraction must be between 0 and 1.")
     if args.k_warmup_decay_rate <= 0:
         raise ValueError("--k-warmup-decay-rate must be positive.")
+    if args.l1_coef is not None and args.l1_coef < 0:
+        raise ValueError("--l1-coef must be non-negative.")
+    if args.shrink_threshold < 0:
+        raise ValueError("--shrink-threshold must be non-negative.")
+    variants = resolve_sae_variants(args)
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
@@ -693,32 +903,34 @@ def main() -> None:
     for parameter in model.parameters():
         parameter.requires_grad_(False)
 
-    hook_point, hook_layer = resolve_training_hook_point(model, args.hook_layer, args.hook_site)
+    hook_point, hook_layer = resolve_training_hook_point(
+        model,
+        hook_layer=args.hook_layer,
+        hook_site=args.hook_site,
+        hook_index=args.hook_index,
+        hook_point=args.hook_point,
+    )
     d_in = model.cfg.d_model
-    print(f"hook_point={hook_point}, hook_layer={hook_layer}, hook_site={args.hook_site}, d_in={d_in}")
+    hook_layer_display = hook_layer if hook_layer >= 0 else "unknown"
+    print(
+        f"hook_point={hook_point}, hook_layer={hook_layer_display}, "
+        f"hook_site={args.hook_site}, d_in={d_in}"
+    )
 
     questions = read_questions(args.questions_path, args.question_repeats)
 
-    print(f"Training variants sequentially: {', '.join(str(v['name']) for v in SAE_VARIANTS)}")
+    print(f"Training variants sequentially: {', '.join(str(v['name']) for v in variants)}")
     print(f"Saving to {run_dir}")
 
-    for variant in SAE_VARIANTS:
+    for variant in variants:
         name = str(variant["name"])
-        total_steps = args.max_steps or max(1, args.token_budget // args.batch_tokens)
-        schedule_k = is_k_scheduled_activation(variant["activation"])
-        target_k = args.top_k
-        k_warmup_steps = max(1, math.ceil(total_steps * args.k_warmup_fraction))
         print(f"\n=== Training {name} SAE ===")
-        if schedule_k and args.k_warmup_fraction > 0:
-            print(
-                f"{name} k warmup: {args.expansion_factor * d_in} -> {target_k} "
-                f"over {k_warmup_steps:,} steps ({args.k_warmup_fraction:.0%} of training)"
-            )
         sae, optimizer, scheduler, variant_dir = build_sae(
             args=args,
             variant=variant,
             d_in=d_in,
             hook_point=hook_point,
+            hook_layer=hook_layer,
             device=device,
             run_dir=run_dir,
         )
@@ -728,17 +940,44 @@ def main() -> None:
         total_seen_tokens = 0
         step = 0
         total_steps = args.max_steps or max(1, args.token_budget // args.batch_tokens)
+        loss_since_update = 0.0
+        steps_since_update = 0
+        previous_update_avg_loss: Optional[float] = None
+        update_checkpoint_dir = variant_dir / "best_step_update"
         sparsity_udf = make_target_sparsity_udf(
             args.target_nonzero_features,
             args.sparsity_control_rate,
             args.sparsity_ema_beta,
+            args.sparsity_control_max_log_step,
+            args.sparsity_control_deadband,
+            args.min_l1_coef,
+            args.max_l1_coef,
         )
         k_warmup = make_k_warmup_config(args, sae, total_steps)
+        shrink_threshold_warmup = make_shrink_threshold_warmup_config(sae, total_steps)
         if k_warmup is not None:
             print(
                 f"k warmup: {k_warmup['start_k']:,} -> {k_warmup['target_k']:,} "
                 f"over {k_warmup['warmup_steps']:,} steps"
             )
+        if shrink_threshold_warmup is not None:
+            print(
+                "shrink threshold warmup: "
+                f"0.0000 -> {shrink_threshold_warmup['target_threshold']:.4f} "
+                f"over {int(shrink_threshold_warmup['warmup_steps']):,} steps"
+            )
+            if sparsity_udf is not None:
+                print(
+                    "sparsity control starts after shrink threshold warmup "
+                    f"at step {int(shrink_threshold_warmup['warmup_steps']) + 1:,}"
+                )
+        checkpoint_warmup_steps = max(
+            min(args.warmup_steps, max(0, total_steps - 1)),
+            k_warmup["warmup_steps"] if k_warmup is not None else 0,
+            int(shrink_threshold_warmup["warmup_steps"]) if shrink_threshold_warmup is not None else 0,
+        )
+        if checkpoint_warmup_steps > 0:
+            print(f"best_step_update saves start after warmup step {checkpoint_warmup_steps:,}")
 
         batches = (
             token_batches(
@@ -775,6 +1014,16 @@ def main() -> None:
                     warmup_steps=k_warmup["warmup_steps"],
                 )
                 set_sae_k(sae, current_k)
+            if shrink_threshold_warmup is not None:
+                current_shrink_threshold = shrink_threshold_for_step(
+                    step,
+                    target_threshold=shrink_threshold_warmup["target_threshold"],
+                    warmup_steps=int(shrink_threshold_warmup["warmup_steps"]),
+                )
+                set_shrink_threshold(sae, current_shrink_threshold)
+            step_sparsity_udf = sparsity_udf
+            if shrink_threshold_warmup is not None and step <= int(shrink_threshold_warmup["warmup_steps"]):
+                step_sparsity_udf = None
 
             total_seen_tokens += batch.token_count
 
@@ -789,7 +1038,7 @@ def main() -> None:
                     hook_point=hook_point,
                     optimizer=optimizer,
                     record_nonzero_features=args.log_nonzero_features,
-                    sparsity_udf=sparsity_udf,
+                    sparsity_udf=step_sparsity_udf,
                 )
             else:
                 if batch.activations is None:
@@ -804,13 +1053,15 @@ def main() -> None:
                     activations,
                     optimizer,
                     record_nonzero_features=args.log_nonzero_features,
-                    sparsity_udf=sparsity_udf,
+                    sparsity_udf=step_sparsity_udf,
                     loss_mask=attention_mask,
                 )
             scheduler.step()
             step_metrics["lr"] = scheduler.get_last_lr()[0]
             if k_warmup is not None:
                 step_metrics["k"] = float(sae.cfg.k)
+            if shrink_threshold_warmup is not None:
+                step_metrics["shrink_threshold"] = float(sae.cfg.shrink_threshold)
             metrics.append(step_metrics)
             loss_since_update += step_metrics["loss"]
             steps_since_update += 1
@@ -825,29 +1076,32 @@ def main() -> None:
                 if previous_update_avg_loss is not None:
                     step_metrics["previous_update_avg_loss"] = float(previous_update_avg_loss)
                 checkpoint_text = ""
-                if improved_from_last_update:
+                checkpoint_warmup_complete = step >= checkpoint_warmup_steps
+                step_metrics["checkpoint_warmup_complete"] = float(checkpoint_warmup_complete)
+                if checkpoint_warmup_steps > 0:
+                    step_metrics["checkpoint_warmup_steps"] = float(checkpoint_warmup_steps)
+                if checkpoint_warmup_complete and improved_from_last_update:
                     step_metrics["saved_step_update_checkpoint"] = 1.0
                     save_one(update_checkpoint_dir, sae, metrics)
                     checkpoint_text = f" | saved={update_checkpoint_dir.name}"
-                previous_update_avg_loss = update_avg_loss
+                if checkpoint_warmup_complete:
+                    previous_update_avg_loss = update_avg_loss
                 loss_since_update = 0.0
                 steps_since_update = 0
 
                 nonzero_text = ""
                 if args.log_nonzero_features:
                     nonzero_text = f" | avg_nonzero={step_metrics['avg_nonzero_features']:.2f}"
-                if schedule_k:
-                    nonzero_text += f" | k={int(step_metrics['k'])}"
                 if "l1_context" in step_metrics:
                     nonzero_text += f" | l1_context={step_metrics['l1_context']:.4f}"
                 if "k" in step_metrics:
                     nonzero_text += f" | k={int(step_metrics['k'])}"
-                if sparsity_udf is not None:
+                if "ema_nonzero_features" in step_metrics:
                     nonzero_text += f" | ema_nonzero={step_metrics['ema_nonzero_features']:.2f}"
-                    if "l1_coefficient" in step_metrics:
-                        nonzero_text += f" | l1_coeff={step_metrics['l1_coefficient']:.2e}"
-                    if "shrink_threshold" in step_metrics:
-                        nonzero_text += f" | shrink_threshold={step_metrics['shrink_threshold']:.4f}"
+                    if "l1_coef" in step_metrics:
+                        nonzero_text += f" | l1_coef={step_metrics['l1_coef']:.2e}"
+                if "shrink_threshold" in step_metrics:
+                    nonzero_text += f" | shrink_threshold={step_metrics['shrink_threshold']:.4f}"
                 print(
                     f"{name} | step {step:05d} | tokens={total_seen_tokens:,} | "
                     f"loss={step_metrics['loss']:.4f} | avg_loss={update_avg_loss:.4f} | {args.loss_objective}="
@@ -861,14 +1115,16 @@ def main() -> None:
             if total_seen_tokens >= args.token_budget:
                 break
 
-        if schedule_k:
-            sae.set_k(target_k)
+        if k_warmup is not None:
+            set_sae_k(sae, k_warmup["target_k"])
+        if shrink_threshold_warmup is not None:
+            set_shrink_threshold(sae, shrink_threshold_warmup["target_threshold"])
         save_one(variant_dir, sae, metrics)
         print(f"Saved {name} SAE to {variant_dir}")
         print(f"Finished {step:,} steps over {total_seen_tokens:,} activation tokens for {name}.")
         free_sae_memory(sae, optimizer, scheduler, metrics)
 
-    print(f"\nSaved all four SAEs under {run_dir}")
+    print(f"\nSaved all SAEs under {run_dir}")
 
 
 if __name__ == "__main__":

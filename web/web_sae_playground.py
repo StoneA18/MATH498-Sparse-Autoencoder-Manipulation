@@ -52,6 +52,7 @@ class LoadedState:
     sae_path: Path
     model_name: str
     hook_point: str
+    hook_point_label: str
     device: str
     model: Any
     sae: TrainableSAE
@@ -157,10 +158,61 @@ class PlaygroundRuntime:
                 return option
         raise ValueError(f"Unknown SAE checkpoint: {sae_path}")
 
-    def load(self, sae_path: str | None) -> LoadedState:
+    def resolve_hook_point(
+        self,
+        option: SAEOption,
+        hook_point_target: Any,
+        hook_layer_index: Any = 0,
+    ) -> tuple[str, str]:
+        target = str(first_scalar(hook_point_target, "checkpoint"))
+        if target in ("", "checkpoint", "trained"):
+            return option.hook_point, "checkpoint hook"
+        if target in ("beginning", "start", "input"):
+            return "blocks.0.hook_resid_pre", "beginning of model"
+        if target in ("layer", "index", "custom"):
+            layer_index = int(first_scalar(hook_layer_index, 0))
+            if layer_index < 0:
+                raise ValueError("Hook layer index must be non-negative.")
+            return f"blocks.{layer_index}.hook_resid_pre", f"layer {layer_index} resid_pre"
+        raise ValueError(f"Unknown hook point target: {target}")
+
+    def load(
+        self,
+        sae_path: str | None,
+        hook_point_target: Any = "checkpoint",
+        hook_layer_index: Any = 0,
+    ) -> LoadedState:
         option = self.get_option(sae_path)
+        hook_point, hook_point_label = self.resolve_hook_point(
+            option,
+            hook_point_target,
+            hook_layer_index,
+        )
         with self._lock:
+            if (
+                self._state is not None
+                and self._state.sae_path == option.path
+                and self._state.hook_point == hook_point
+            ):
+                return self._state
             if self._state is not None and self._state.sae_path == option.path:
+                connector = SAEConnector(
+                    model=self._state.model,
+                    sae=self._state.sae,
+                    hook_point=hook_point,
+                    device=self.device,
+                    preserve_error=True,
+                )
+                self._state = LoadedState(
+                    sae_path=option.path,
+                    model_name=option.model_name,
+                    hook_point=hook_point,
+                    hook_point_label=hook_point_label,
+                    device=self.device,
+                    model=self._state.model,
+                    sae=self._state.sae,
+                    connector=connector,
+                )
                 return self._state
 
             dtype = getattr(torch, self.model_dtype)
@@ -178,14 +230,15 @@ class PlaygroundRuntime:
             connector = SAEConnector(
                 model=model,
                 sae=sae,
-                hook_point=option.hook_point,
+                hook_point=hook_point,
                 device=self.device,
                 preserve_error=True,
             )
             self._state = LoadedState(
                 sae_path=option.path,
                 model_name=option.model_name,
-                hook_point=option.hook_point,
+                hook_point=hook_point,
+                hook_point_label=hook_point_label,
                 device=self.device,
                 model=model,
                 sae=sae,
@@ -465,6 +518,8 @@ def analyze_prompt(state: LoadedState, prompt: str, payload: dict[str, Any]) -> 
     return {
         "tokens": len(tokens),
         "featureWidth": int(features.shape[-1]),
+        "hookPoint": state.hook_point,
+        "hookPointLabel": state.hook_point_label,
         "nonzero": nonzero,
         "avgNonzeroPerToken": float((features != 0).sum(dim=-1).float().mean().item()),
         "featureActivations": feature_activations,
@@ -721,6 +776,26 @@ INDEX_HTML = r"""<!doctype html>
       font-weight: 700;
       white-space: pre-wrap;
     }
+    .token-button {
+      display: inline;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      padding: 2px 3px;
+      font: inherit;
+      text-align: left;
+      white-space: pre-wrap;
+      cursor: pointer;
+    }
+    .token-button:hover {
+      background: #edf3ef;
+      color: var(--green-dark);
+    }
+    .token-button.applied {
+      background: #e6f1ed;
+      color: var(--green-dark);
+    }
     .pill {
       display: inline-flex;
       gap: 5px;
@@ -806,9 +881,23 @@ INDEX_HTML = r"""<!doctype html>
           <option value="post_activation">After SAE activation</option>
           <option value="pre_activation">Before SAE activation</option>
         </select>
+        <label for="hookPointTarget">SAE hook point</label>
+        <select id="hookPointTarget">
+          <option value="checkpoint">Checkpoint hook</option>
+          <option value="beginning">Beginning of model</option>
+          <option value="layer">Layer index</option>
+        </select>
+        <label for="hookLayerIndex">Hook layer index</label>
+        <input id="hookLayerIndex" type="number" min="0" step="1" value="0" />
+        <label for="tokenTarget">Target token</label>
+        <select id="tokenTarget">
+          <option value="newest">Newest generated token</option>
+          <option value="beginning">Beginning of prompt</option>
+          <option value="custom">Custom index</option>
+        </select>
         <label for="tokenIndex">Token index</label>
         <input id="tokenIndex" type="number" value="-1" />
-        <div class="hint">Use -1 for the newest token during generation. Other values target a fixed position in the current forward pass.</div>
+        <div class="hint">Beginning uses token index 0. Custom values target a fixed position in the current forward pass.</div>
         <label for="featureIds">Feature IDs</label>
         <input id="featureIds" placeholder="18493, 42, 9001" />
         <div class="row">
@@ -869,7 +958,7 @@ INDEX_HTML = r"""<!doctype html>
         <div class="chart-panel">
           <div class="chart-title">
             <strong id="chartFeature">Feature graph</strong>
-            <span id="chartMeta">Click any feature pill below.</span>
+            <span id="chartMeta">Click a feature pill, or Ctrl-click a token to load its features.</span>
           </div>
           <div class="chart-scroll" id="chartScroll">
             <div class="chart-empty" id="chartEmpty">Analyze a prompt, then click a feature to see activation by token.</div>
@@ -891,8 +980,15 @@ const $ = (id) => document.getElementById(id);
 let saeOptions = [];
 let lastAnalysis = null;
 let activeFeatureId = null;
+let appliedTokenPosition = null;
 
 function payload() {
+  const tokenTarget = $("tokenTarget").value;
+  const tokenIndex = tokenTarget === "newest"
+    ? -1
+    : tokenTarget === "beginning"
+      ? 0
+      : Number($("tokenIndex").value);
   return {
     saePath: $("saePath").value,
     prompt: $("prompt").value,
@@ -903,7 +999,9 @@ function payload() {
     seed: Number($("seed").value),
     projection: $("projection").value,
     projectorLocation: $("projectorLocation").value,
-    tokenIndex: Number($("tokenIndex").value),
+    hookPointTarget: $("hookPointTarget").value,
+    hookLayerIndex: Number($("hookLayerIndex").value),
+    tokenIndex,
     featureIds: $("featureIds").value,
     value: $("value").value,
     factor: $("factor").value,
@@ -962,6 +1060,27 @@ function updateSaeMeta() {
     : "";
 }
 
+function updateTokenIndexState() {
+  const tokenTarget = $("tokenTarget").value;
+  if (tokenTarget === "newest") {
+    $("tokenIndex").value = "-1";
+    $("tokenIndex").disabled = true;
+  } else if (tokenTarget === "beginning") {
+    $("tokenIndex").value = "0";
+    $("tokenIndex").disabled = true;
+  } else {
+    $("tokenIndex").disabled = false;
+  }
+}
+
+function updateHookLayerIndexState() {
+  const usesLayerIndex = $("hookPointTarget").value === "layer";
+  $("hookLayerIndex").disabled = !usesLayerIndex;
+  if ($("hookPointTarget").value === "beginning") {
+    $("hookLayerIndex").value = "0";
+  }
+}
+
 async function generate() {
   clearError($("baselineOut"));
   clearError($("steeredOut"));
@@ -972,7 +1091,7 @@ async function generate() {
     const data = await api("/api/generate", payload());
     $("baselineOut").textContent = data.baseline || "(empty)";
     $("steeredOut").textContent = data.steered || "(empty)";
-    setBusy(`Done in ${data.elapsedSeconds.toFixed(1)}s`);
+    setBusy(`Done in ${data.elapsedSeconds.toFixed(1)}s | ${data.hookPointLabel}: ${data.hookPoint}`);
   } catch (err) {
     setError($("steeredOut"), err);
     setBusy("Generation failed.");
@@ -984,17 +1103,18 @@ async function analyze() {
   $("chartEmpty").style.display = "block";
   $("featureChart").innerHTML = "";
   activeFeatureId = null;
+  appliedTokenPosition = null;
   setBusy("Loading model and analyzing features...");
   try {
     const data = await api("/api/analyze", payload());
     lastAnalysis = data;
     $("analysisMeta").textContent =
-      `${data.tokens} tokens | ${data.featureWidth} features | avg nonzero ${data.avgNonzeroPerToken.toFixed(2)}`;
+      `${data.tokens} tokens | ${data.featureWidth} features | ${data.hookPointLabel}: ${data.hookPoint} | avg nonzero ${data.avgNonzeroPerToken.toFixed(2)}`;
     $("analysisRows").innerHTML = data.rows.map(row => {
       const feats = row.features.map(f =>
         `<button class="pill" type="button" data-feature-id="${f.id}" onclick="handleFeaturePillClick(event, ${f.id}, ${f.value})"><b>${f.id}</b>${f.value.toFixed(3)}</button>`
       ).join("");
-      return `<tr><td>${row.position}</td><td class="token">${escapeHtml(row.token)}</td><td>${feats}</td></tr>`;
+      return `<tr><td>${row.position}</td><td class="token"><button class="token-button" type="button" data-token-position="${row.position}" title="Click to graph the strongest feature. Ctrl/Cmd-click to load this token's top features.">${escapeHtml(row.token)}</button></td><td>${feats}</td></tr>`;
     }).join("");
     const firstFeature = data.rows?.[0]?.features?.[0]?.id;
     if (firstFeature !== undefined) renderFeatureChart(firstFeature);
@@ -1042,10 +1162,40 @@ function addFeatureControlValue(featureId, featureValue) {
   $("value").value = formatNumberList(values);
 }
 
+function setFeatureControlValues(features) {
+  const cleanFeatures = (features || [])
+    .map(f => ({id: Number(f.id), value: Number(f.value)}))
+    .filter(f => Number.isInteger(f.id) && Number.isFinite(f.value));
+  if (!cleanFeatures.length) return;
+
+  $("featureIds").value = cleanFeatures.map(f => f.id).join(", ");
+  $("value").value = formatNumberList(cleanFeatures.map(f => f.value));
+  if ($("projection").value === "identity") {
+    $("projection").value = "clamp";
+  }
+}
+
 function handleFeaturePillClick(event, featureId, featureValue) {
   renderFeatureChart(featureId);
   if (event.ctrlKey || event.metaKey) {
     addFeatureControlValue(featureId, featureValue);
+  }
+}
+
+function handleTokenClick(event, position) {
+  if (!lastAnalysis) return;
+  const row = (lastAnalysis.rows || []).find(r => Number(r.position) === Number(position));
+  if (!row || !row.features || !row.features.length) return;
+
+  renderFeatureChart(row.features[0].id);
+  if (event.ctrlKey || event.metaKey) {
+    setFeatureControlValues(row.features);
+    appliedTokenPosition = Number(position);
+    document.querySelectorAll(".token-button").forEach(el => {
+      el.classList.toggle("applied", Number(el.dataset.tokenPosition) === appliedTokenPosition);
+    });
+    $("chartMeta").textContent = `loaded ${row.features.length} features from token ${position} "${compactToken(row.token)}"`;
+    setBusy(`Loaded token ${position}'s feature values into projection controls.`);
   }
 }
 
@@ -1139,7 +1289,17 @@ function escapeHtml(s) {
 $("generate").addEventListener("click", generate);
 $("analyze").addEventListener("click", analyze);
 $("saePath").addEventListener("change", updateSaeMeta);
+$("hookPointTarget").addEventListener("change", updateHookLayerIndexState);
+$("tokenTarget").addEventListener("change", updateTokenIndexState);
+$("analysisRows").addEventListener("click", event => {
+  const tokenButton = event.target.closest(".token-button");
+  if (tokenButton) {
+    handleTokenClick(event, tokenButton.dataset.tokenPosition);
+  }
+});
 loadStatus();
+updateTokenIndexState();
+updateHookLayerIndexState();
 </script>
 </body>
 </html>
@@ -1216,7 +1376,11 @@ class Handler(BaseHTTPRequestHandler):
             )
 
     def handle_generate(self, payload: dict[str, Any]) -> None:
-        state = self.runtime.load(payload.get("saePath"))
+        state = self.runtime.load(
+            payload.get("saePath"),
+            payload.get("hookPointTarget"),
+            payload.get("hookLayerIndex"),
+        )
         prompt = str(payload.get("prompt", "")).strip()
         if not prompt:
             raise ValueError("Prompt is empty.")
@@ -1230,12 +1394,18 @@ class Handler(BaseHTTPRequestHandler):
             {
                 "baseline": baseline,
                 "steered": steered,
+                "hookPoint": state.hook_point,
+                "hookPointLabel": state.hook_point_label,
                 "elapsedSeconds": time.perf_counter() - start,
             }
         )
 
     def handle_analyze(self, payload: dict[str, Any]) -> None:
-        state = self.runtime.load(payload.get("saePath"))
+        state = self.runtime.load(
+            payload.get("saePath"),
+            payload.get("hookPointTarget"),
+            payload.get("hookLayerIndex"),
+        )
         prompt = str(payload.get("prompt", "")).strip()
         if not prompt:
             raise ValueError("Prompt is empty.")
