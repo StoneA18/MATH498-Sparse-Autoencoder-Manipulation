@@ -61,7 +61,7 @@ class ActivationBatch:
 
 SAE_VARIANTS = (
     # {"name": "relu", "activation": "relu", "l1_coef": 250.},
-    {"name": "shrink", "activation": "shrink", "l1_coef": 400},
+    # {"name": "shrink", "activation": "shrink", "l1_coef": 400},
     # {"name": "topk", "activation": "topk", "l1_coef": 0.0},
     # {"name": "topbottomk", "activation": "tbk", "l1_coef": 0.0},
 )
@@ -101,7 +101,7 @@ def parse_args() -> argparse.Namespace:
             "When omitted, uses the script's SAE_VARIANTS defaults."
         ),
     )
-    parser.add_argument("--token-budget", type=int, default=10_000_000)
+    parser.add_argument("--token-budget", type=int, default=100_000_000)
     parser.add_argument("--context-size", type=int, default=64)
     parser.add_argument("--model-forward-texts", type=int, default=128)
     parser.add_argument("--batch-tokens", type=int, default=1024)
@@ -191,6 +191,12 @@ def parse_args() -> argparse.Namespace:
             "Override the per-token feature L1 coefficient for every trained SAE. "
             "When omitted, each variant uses its built-in default."
         ),
+    )
+    parser.add_argument(
+        "--l2-coef",
+        type=float,
+        default=0.0,
+        help="Additional L2 penalty coefficient on SAE features.",
     )
     parser.add_argument(
         "--pre-layer-norm",
@@ -689,6 +695,7 @@ def build_sae(
         lr=args.lr,
         l1_coefficient=l1_coef,
         l1_context_coef=args.l1_context_coef,
+        l2_coefficient=args.l2_coef,
         dtype=args.sae_dtype,
         device=device,
         metadata={
@@ -709,6 +716,7 @@ def build_sae(
             "loss_objective": args.loss_objective,
             "l1_coef": l1_coef,
             "l1_context_coef": args.l1_context_coef,
+            "l2_coef": args.l2_coef,
             "k_warmup_fraction": args.k_warmup_fraction,
             "k_warmup_decay_rate": args.k_warmup_decay_rate,
         },
@@ -1094,6 +1102,8 @@ def main() -> None:
                     nonzero_text = f" | avg_nonzero={step_metrics['avg_nonzero_features']:.2f}"
                 if "l1_context" in step_metrics:
                     nonzero_text += f" | l1_context={step_metrics['l1_context']:.4f}"
+                if "l2" in step_metrics:
+                    nonzero_text += f" | l2={step_metrics['l2']:.4f}"
                 if "k" in step_metrics:
                     nonzero_text += f" | k={int(step_metrics['k'])}"
                 if "ema_nonzero_features" in step_metrics:
