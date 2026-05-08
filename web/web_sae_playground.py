@@ -12,6 +12,8 @@ are loaded lazily on the first analyze/generate request.
 from __future__ import annotations
 
 import argparse
+import csv as _csv
+import datetime as _datetime
 import json
 import sys
 import threading
@@ -512,6 +514,9 @@ def format_prompt(model: Any, prompt: str) -> str:
 
 
 def clean_generated_text(text: str) -> str:
+    eot = text.find("<end_of_turn>")
+    if eot != -1:
+        text = text[:eot]
     return text.strip()
 
 
@@ -733,6 +738,126 @@ def analyze_prompt(state: LoadedState, prompt: str, payload: dict[str, Any]) -> 
         "featureActivations": feature_activations,
         "rows": rows,
     }
+
+_LOG_CSV = Path(__file__).parent / "log.csv"
+_RESPONSES_DIR = Path(__file__).parent / "saved_responses"
+_STATIC_HTML = Path(__file__).parent / "static_sae_playground.html"
+_EMBED_MARKER = '<script id="embedded-data" type="application/json">'
+_CSV_HEADERS = [
+    "timestamp", "prompt", "saePath", "saeEnabled",
+    "maxNewTokens", "temperature", "topP", "seed",
+    "steeringMode", "notebookExperiment", "notebookMethod",
+    "notebookFactor", "notebookTopK", "projection",
+    "projectorLocation", "hookPointTarget", "hookLayerIndex",
+    "featureIds", "value", "factor", "threshold", "topK",
+    "tokenIndex", "hookPoint", "hookPointLabel", "elapsedSeconds",
+    "positiveLabel", "negativeLabel", "notebookVectorNonzero",
+    "baselineFile", "positiveSteeredFile", "negativeSteeredFile",
+]
+
+
+def _update_static_html(record: dict) -> None:
+    if not _STATIC_HTML.exists():
+        return
+    html = _STATIC_HTML.read_text(encoding="utf-8")
+    start = html.find(_EMBED_MARKER)
+    if start == -1:
+        return
+    data_start = start + len(_EMBED_MARKER)
+    end = html.find("</script>", data_start)
+    if end == -1:
+        return
+    try:
+        records = json.loads(html[data_start:end].strip() or "[]")
+    except (json.JSONDecodeError, ValueError):
+        records = []
+    records.append(record)
+    new_html = html[:data_start] + json.dumps(records, ensure_ascii=False) + html[end:]
+    _STATIC_HTML.write_text(new_html, encoding="utf-8")
+
+
+def _log_generation(payload: dict, response: dict) -> None:
+    _RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
+    ts = _datetime.datetime.now()
+    slug = ts.strftime("%Y-%m-%d_%H-%M-%S-%f")
+
+    baseline = response.get("baseline", "")
+    positive = response.get("positiveSteered", response.get("hotSteered", ""))
+    negative = response.get("negativeSteered", response.get("coldSteered", ""))
+
+    def _save(name: str, text: str) -> str:
+        filename = f"{slug}_{name}.txt"
+        (_RESPONSES_DIR / filename).write_text(text, encoding="utf-8")
+        return filename
+
+    baseline_file = _save("baseline", baseline)
+    positive_file = _save("positive", positive)
+    negative_file = _save("negative", negative)
+
+    # Append to CSV (filenames only — no response text)
+    write_header = not _LOG_CSV.exists() or _LOG_CSV.stat().st_size == 0
+    with _LOG_CSV.open("a", newline="", encoding="utf-8") as f:
+        writer = _csv.writer(f)
+        if write_header:
+            writer.writerow(_CSV_HEADERS)
+        writer.writerow([
+            ts.isoformat(),
+            payload.get("prompt", ""),
+            payload.get("saePath", ""),
+            payload.get("saeEnabled", True),
+            payload.get("maxNewTokens", 60),
+            payload.get("temperature", 0.8),
+            payload.get("topP", 0.95),
+            payload.get("seed", 0),
+            payload.get("steeringMode", ""),
+            payload.get("notebookExperiment", ""),
+            payload.get("notebookMethod", ""),
+            payload.get("notebookFactor", ""),
+            payload.get("notebookTopK", ""),
+            payload.get("projection", ""),
+            payload.get("projectorLocation", ""),
+            payload.get("hookPointTarget", ""),
+            payload.get("hookLayerIndex", ""),
+            payload.get("featureIds", ""),
+            payload.get("value", ""),
+            payload.get("factor", ""),
+            payload.get("threshold", ""),
+            payload.get("topK", ""),
+            payload.get("tokenIndex", ""),
+            response.get("hookPoint", ""),
+            response.get("hookPointLabel", ""),
+            response.get("elapsedSeconds", ""),
+            response.get("positiveLabel", ""),
+            response.get("negativeLabel", ""),
+            response.get("notebookVectorNonzero", ""),
+            baseline_file,
+            positive_file,
+            negative_file,
+        ])
+
+    # Embed full record (with response text) into static HTML
+    _update_static_html({
+        "timestamp": ts.isoformat(),
+        "prompt": payload.get("prompt", ""),
+        "saePath": str(payload.get("saePath", "")),
+        "steeringMode": payload.get("steeringMode", ""),
+        "notebookExperiment": payload.get("notebookExperiment", ""),
+        "notebookMethod": payload.get("notebookMethod", ""),
+        "notebookFactor": payload.get("notebookFactor", ""),
+        "notebookTopK": payload.get("notebookTopK", ""),
+        "maxNewTokens": payload.get("maxNewTokens", ""),
+        "temperature": payload.get("temperature", ""),
+        "topP": payload.get("topP", ""),
+        "hookPoint": response.get("hookPoint", ""),
+        "hookPointLabel": response.get("hookPointLabel", ""),
+        "elapsedSeconds": response.get("elapsedSeconds", ""),
+        "positiveLabel": response.get("positiveLabel", ""),
+        "negativeLabel": response.get("negativeLabel", ""),
+        "notebookVectorNonzero": response.get("notebookVectorNonzero", ""),
+        "baseline": baseline,
+        "positiveSteered": positive,
+        "negativeSteered": negative,
+    })
 
 
 INDEX_HTML = r"""<!doctype html>
@@ -1692,6 +1817,42 @@ class Handler(BaseHTTPRequestHandler):
                 }
             )
             return
+        if parsed.path == "/archive":
+            archive_path = Path(__file__).parent / "static_sae_playground.html"
+            if archive_path.exists():
+                self.send_html(archive_path.read_text(encoding="utf-8"))
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND, "static_sae_playground.html not found")
+            return
+        if parsed.path == "/log.csv":
+            if _LOG_CSV.exists():
+                data = _LOG_CSV.read_bytes()
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND, "log.csv not found")
+            return
+        if parsed.path.startswith("/responses/"):
+            filename = parsed.path[len("/responses/"):]
+            if not filename or "/" in filename or "\\" in filename or ".." in filename:
+                self.send_error(HTTPStatus.FORBIDDEN, "Forbidden")
+                return
+            file_path = _RESPONSES_DIR / filename
+            if file_path.exists():
+                data = file_path.read_bytes()
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND, "Response file not found")
+            return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_POST(self) -> None:
@@ -1747,6 +1908,10 @@ class Handler(BaseHTTPRequestHandler):
                 "elapsedSeconds": time.perf_counter() - start,
             }
         )
+        try:
+            _log_generation(payload, response)
+        except Exception:
+            pass
         self.send_json(response)
 
     def handle_analyze(self, payload: dict[str, Any]) -> None:

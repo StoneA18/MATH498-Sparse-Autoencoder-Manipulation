@@ -1,0 +1,2 @@
+feature=18493 p=0.5000 dist=normal mean=35.00 std=0.00 n=250 prompt="The president is most concerned about the threat of"
+beaten Marine security forces to Americans, according to a report by The New York Times.

@@ -1,0 +1,8 @@
+feature=18493 p=0.2000 dist=normal mean=35.00 std=0.00 n=250 prompt="The president is most concerned about the threat of"
+global nuclear power.
+
+Arguments for nuclear energy, Mr Modi said, are "broadly unacceptable."
+
+"Our power is not already generating power from there we could not bring up for putting 454 GW of nuclear resources in India on our homes, to our cities packs, that's why they are prohibited from developed countries yet," he said.
+
+BlueEdge director of Greenpeace Herta Riza said he had been involved in non-resident sites for years, with "they attribute as many as two thirds of their electricity resources in this work."
