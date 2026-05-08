@@ -218,16 +218,25 @@ class PlaygroundRuntime:
                 )
                 return self._state
 
-            dtype_name = "bfloat16" if self.device.startswith("cuda") else "float32"
-            dtype = getattr(torch, dtype_name)
-            model = load_hooked_transformer(
-                DEFAULT_MODEL_NAME,
-                device=self.device,
-                dtype=dtype,
-                local_files_only=self.local_files_only,
+            model = (
+                self._state.model
+                if self._state is not None and self._state.model_name == option.model_name
+                else None
             )
-            if getattr(model, "tokenizer", None) is not None and model.tokenizer.pad_token_id is None:
-                model.tokenizer.pad_token = model.tokenizer.eos_token
+            dtype = resolve_model_dtype(self.device, self.model_dtype)
+            if model is None:
+                model = load_hooked_transformer(
+                    option.model_name,
+                    device=self.device,
+                    dtype=dtype,
+                    local_files_only=self.local_files_only,
+                )
+                model.to(dtype)
+                if (
+                    getattr(model, "tokenizer", None) is not None
+                    and model.tokenizer.pad_token_id is None
+                ):
+                    model.tokenizer.pad_token = model.tokenizer.eos_token
 
             sae = TrainableSAE.load(option.path, device=self.device)
             sae.eval()
@@ -240,7 +249,7 @@ class PlaygroundRuntime:
             )
             self._state = LoadedState(
                 sae_path=option.path,
-                model_name=DEFAULT_MODEL_NAME,
+                model_name=option.model_name,
                 hook_point=hook_point,
                 hook_point_label=hook_point_label,
                 device=self.device,
@@ -249,6 +258,17 @@ class PlaygroundRuntime:
                 connector=connector,
             )
             return self._state
+
+
+def resolve_model_dtype(device: str, model_dtype: str) -> torch.dtype:
+    """Mirror the notebooks: bfloat16 on CUDA by default, float32 on CPU/MPS."""
+    if not device.startswith("cuda"):
+        return torch.float32
+    return getattr(torch, model_dtype)
+
+
+def notebook_default_device() -> str:
+    return "cuda:2" if torch.cuda.is_available() else "cpu"
 
 
 def parse_feature_ids(raw: Any) -> list[int]:
@@ -507,8 +527,13 @@ def notebook_delta_avg(state: LoadedState, experiment: str, top_k: int) -> torch
     return delta_avg
 
 
-def format_prompt(model: Any, prompt: str) -> str:
-    return f"<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n"
+def format_prompt_for_model(model: Any, prompt: str) -> str:
+    model_name = str(
+        getattr(getattr(model, "cfg", None), "model_name", "") or ""
+    ).lower()
+    if "gemma" in model_name and "it" in model_name:
+        return f"<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n"
+    return prompt
 
 
 def clean_generated_text(text: str) -> str:
@@ -1725,7 +1750,7 @@ class Handler(BaseHTTPRequestHandler):
         prompt = str(payload.get("prompt", "")).strip()
         if not prompt:
             raise ValueError("Prompt is empty.")
-        formatted_prompt = format_prompt(state.model, prompt)
+        formatted_prompt = format_prompt_for_model(state.model, prompt)
         start = time.perf_counter()
         steering_mode = str(first_scalar(payload.get("steeringMode"), "notebook_delta_pair"))
         if steering_mode in ("notebook_delta_pair", "notebook_hot_cold"):
@@ -1758,7 +1783,7 @@ class Handler(BaseHTTPRequestHandler):
         prompt = str(payload.get("prompt", "")).strip()
         if not prompt:
             raise ValueError("Prompt is empty.")
-        formatted_prompt = format_prompt(state.model, prompt)
+        formatted_prompt = format_prompt_for_model(state.model, prompt)
         self.send_json(analyze_prompt(state, formatted_prompt, payload))
 
 
@@ -1766,7 +1791,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Serve a local SAE projection playground.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--device", default="auto")
+    parser.add_argument(
+        "--device",
+        default=notebook_default_device(),
+        help="Torch device. Defaults to the notebook pattern: cuda:2 if CUDA is available, else cpu.",
+    )
     parser.add_argument("--model-dtype", default="bfloat16", choices=("float32", "bfloat16", "float16"))
     parser.add_argument(
         "--local-files-only",
