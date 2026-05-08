@@ -13,7 +13,7 @@ from experiment_scripts.bulk_features import bulk_feature_stats
 from experiment_scripts.affectations import affectation_experiment
 from experiment_scripts.affectations2 import affectation_experiment_v2
 from experiment_scripts.steering_dashboard import SteeringExperiment
-from experiment_scripts.grid_search import run_grid_search, parse_grid_search_args
+from experiment_scripts.grid_search import run_grid_search, parse_grid_search_args, process_results
 
 
 def sample_experiment():
@@ -130,8 +130,11 @@ if __name__ == "__main__":
         sys.exit(1)
 
     if sys.argv[1] == "grid-search":
-        kwargs = parse_grid_search_args(sys.argv[2:])
-        run_grid_search(**kwargs)
+        if len(sys.argv) > 2 and sys.argv[2] == "process-results":
+            process_results()
+        else:
+            kwargs = parse_grid_search_args(sys.argv[2:])
+            run_grid_search(**kwargs)
         print("Experiment complete. Exiting...")
         sys.exit(0)
 
