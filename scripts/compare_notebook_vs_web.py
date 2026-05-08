@@ -53,7 +53,7 @@ WEBSITE = ConfigBlock(
     values={
         "model_name": "google/gemma-3-270m-it",
         "sae_path": "saved_saes/shrink_mid_1/shrink/best_step_update",
-        "device": "cuda:2 (if launched with --device cuda:2, otherwise server arg)",
+        "device": "cuda:2 (if available, otherwise cpu)",
         "dtype": "bfloat16 (if cuda else float32)",
         "prompt_format": "gemma-it chat template",
         "prompt": "is the temperature outside hot or cold?",
