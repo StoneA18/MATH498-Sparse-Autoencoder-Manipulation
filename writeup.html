@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Final Project — SAE Feature Steering</title>
+  <script>
+    MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']],
+        tags: 'ams',
+        packages: {'[+]': ['ams']}
+      },
+      options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
+    };
+  </script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: "Palatino Linotype", "Book Antiqua", Palatino, "Linux Libertine", Georgia, serif;
+      font-size: 16px;
+      line-height: 1.7;
+      color: #111;
+      background: #fff;
+      margin: 0;
+      padding: 0;
+    }
+
+    .paper {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+
+    /* ── Header ── */
+    .paper-title {
+      font-size: 1.75rem;
+      font-weight: bold;
+      text-align: center;
+      margin: 0 0 14px;
+      line-height: 1.3;
+    }
+    .paper-authors {
+      text-align: center;
+      font-size: 1rem;
+      margin-bottom: 4px;
+    }
+    .paper-date {
+      text-align: center;
+      font-size: 0.9rem;
+      color: #555;
+      margin-bottom: 36px;
+    }
+
+    /* ── Abstract ── */
+    .abstract-block {
+      border-top: 1px solid #ccc;
+      border-bottom: 1px solid #ccc;
+      padding: 16px 0;
+      margin: 0 0 36px;
+    }
+    .abstract-heading {
+      font-weight: bold;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .abstract-block p {
+      margin: 0 0 0.8em;
+      font-size: 0.93rem;
+    }
+    .abstract-block p:last-child { margin-bottom: 0; }
+
+    /* ── Sections ── */
+    h2 {
+      font-size: 1.15rem;
+      font-weight: bold;
+      margin: 2em 0 0.5em;
+      border-bottom: 1px solid #e0e0e0;
+      padding-bottom: 3px;
+    }
+    h3 {
+      font-size: 1rem;
+      font-weight: bold;
+      margin: 1.6em 0 0.4em;
+    }
+    h4 {
+      font-size: 0.97rem;
+      font-weight: bold;
+      font-style: italic;
+      margin: 1.4em 0 0.3em;
+    }
+
+    p { margin: 0 0 0.9em; }
+
+    /* ── Lists ── */
+    ul, ol {
+      margin: 0 0 0.9em 0;
+      padding-left: 2em;
+    }
+    li { margin-bottom: 0.35em; }
+    ul ul, ol ul { margin-top: 0.3em; margin-bottom: 0.3em; }
+
+    /* ── Monospace ── */
+    code, .mono {
+      font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
+      font-size: 0.87em;
+      background: #f5f5f5;
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+
+    /* ── Math display override for spacing ── */
+    .MathJax_Display, mjx-container[display="true"] {
+      margin: 1em 0 !important;
+      overflow-x: auto;
+    }
+
+    /* ── Section counter labels ── */
+    .sec-num { margin-right: 0.5em; }
+
+    /* ── Citation superscripts ── */
+    cite {
+      font-style: normal;
+      vertical-align: super;
+      font-size: 0.75em;
+      color: #1a55a0;
+      cursor: default;
+    }
+
+    /* ── References ── */
+    .references { margin-top: 2.5em; }
+    .references h2 { margin-bottom: 0.8em; }
+    .ref-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .ref-list li {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 0.8em;
+      font-size: 0.92rem;
+    }
+    .ref-num {
+      flex-shrink: 0;
+      color: #555;
+      min-width: 28px;
+    }
+
+    /* ── Horizontal rule ── */
+    hr { border: none; border-top: 1px solid #ddd; margin: 2em 0; }
+
+    /* ── Note box for incomplete sections ── */
+    .placeholder-note {
+      color: #888;
+      font-style: italic;
+      font-size: 0.9rem;
+      border-left: 3px solid #ddd;
+      padding-left: 12px;
+      margin: 0.5em 0 1em;
+    }
+  </style>
+</head>
+<body>
+<div class="paper">
+
+  <!-- ── Title block ── -->
+  <h1 class="paper-title">LLM Final Project: Sparse Autoencoder Feature Steering</h1>
+  <div class="paper-authors">Andy Holmberg and Stone Amsbaugh</div>
+  <div class="paper-date">May 2026</div>
+
+  <!-- ── Abstract ── -->
+  <div class="abstract-block">
+    <div class="abstract-heading">Abstract</div>
+    <p>
+      In this project, various experiments are performed on methods of using Sparse Autoencoders (SAEs) to steer model responses. It is shown that smaller changes to intervention methods can significantly resolve issues with model steering. Specifically, with traditional methods of &lsquo;clamping&rsquo; features, a phenomenon occurs that we call the <em>degradation</em> of the model, where responses increasingly focus on the steering subject at the expense of response quality, eventually repeating only a couple of words indefinitely. This project shows that model degradation can be overcome, while still effectively steering the model, using a stochastic approach to steering that we will outline in detail.
+    </p>
+    <p>
+      Other significant results are demonstrated as a result of a more fundamental redesign of SAE steering methods. Using a novel, signed activation function to train new SAEs, and using a projection-based approach to intervention, preliminary evidence suggests that SAEs can be used to instill biases into models without forcing this bias to be present unless addressed during prompting.
+    </p>
+    <p>
+      Overall, this paper establishes the potential that SAEs have for tuning model behavior and key methods with promise in this regard. Additionally, to accomplish these goals, specific workflows for identifying steering features and evaluating results are presented.
+    </p>
+  </div>
+
+  <!-- ════════════════════════════════════════════
+       1. Introduction
+  ═════════════════════════════════════════════ -->
+  <h2><span class="sec-num">1</span> Introduction</h2>
+
+  <p>
+    Sparse autoencoders are a modern tool for interpretability on large language models that map a vector from some layer in the model to a different space. Typically, this transformed vector is specified to have much higher dimensionality than the input vector. To avoid non-trivial encodings into higher dimensions, and to enforce sparsity (which will define the utility of this tool), an $L_1$ norm can penalize non-sparse encodings. Additionally, the autoencoder can transform this back into a vector of the original size, and learn to minimize the difference ($L_2$ norm) between the original and resulting vectors, as to preserve the information.
+  </p>
+  <p>
+    The utility of performing such an operation has typically been for the purposes of interpretability research. Language models must learn to represent many more concepts than they have model dimensions, so the model must represent concepts as a linear combination of multiple values. By transforming this to a sparse vector, we aim to capture certain features that may activate for more specific concepts or thoughts, and if we can identify which concepts they activate for, we unlock a sizable advantage when trying to interpret the model.
+  </p>
+  <p>
+    In addition, SAEs provide us with a mechanism for affecting the model behavior as well. When we have the encoded, sparse vector, we now have the ability to modify this vector in a variety of different ways. One common operation is to &lsquo;clamp&rsquo; a feature, or overwrite its element in the vector to be a specified value, typically to a value that may be observed when the feature is active. This is what was done in the &lsquo;Golden Gate Claude&rsquo; <cite>[1]</cite> experiment that this project is largely inspired by. By identifying the feature in a sparse autoencoder that was associated with the Golden Gate Bridge, researchers were able to &lsquo;clamp&rsquo; this feature to an activated value, and the model then began to answer questions, while still being perfectly intelligible, in terms of this particular landmark. Specific examples of this behavior can be found in the resources below <cite>[5]</cite>.
+  </p>
+
+  <h3><span class="sec-num">1.1</span> Originally Proposed Work</h3>
+
+  <h4><span class="sec-num">1.1.1</span> Steering Model Output Towards Specific Goals</h4>
+  <ol type="a">
+    <li>
+      <strong>Force model to focus on a specified topic.</strong>
+      It has already been clearly demonstrated that model features within the sparse autoencoder can be &lsquo;clamped&rsquo; to some value in order to manipulate the model&rsquo;s responses. See the section on preliminary work to see how we have done this. However, more advanced intervention methods, alongside methods for feature and method hyperparameter identification would be desirable results of this investigation.
+    </li>
+    <li>
+      <strong>Manipulate underlying model affectations.</strong>
+      We explore whether we can alter certain SAE features to change certain affectations of the response. A couple questions are of interest: How is a response sensitive to certain features in the SAE feature space? Can we change the tone of the response without changing the content? Can we robustly reverse / negate the content or meaning of a response by activating the same SAE features?
+    </li>
+  </ol>
+
+  <h4><span class="sec-num">1.1.2</span> Compare Model Manipulations Across Different Activation Functions</h4>
+  <p>
+    In addition to exploring methods of manipulating an LLM&rsquo;s reasoning in the sparse feature space, we plan on testing these methods across different activation functions. We use two commonly used SAEs&mdash;ReLU and TopK&mdash;and two less common SAEs that allow negative feature values. Zhu et al. <cite>[4]</cite> introduce a method called AbsTopK, and we introduce a method&mdash;one that uses the same structure as a normal SAE, but applies the shrink operator as the activation function instead of ReLU. Because we are using a non-standard activation function, we will have to train SAEs from scratch.
+  </p>
+
+  <h4><span class="sec-num">1.1.3</span> Influence Model Alignment or Misalignment via Orthogonal Projection</h4>
+  <p>
+    A major driver of exploring negative-valued activation functions is the opportunity to use geometric properties in the sparse feature space to steer vectors via orthogonal projections. The mathematics of this will be discussed later in Section 4.3.
+  </p>
+
+  <!-- ════════════════════════════════════════════
+       2. Literature Review
+  ═════════════════════════════════════════════ -->
+  <h2><span class="sec-num">2</span> Literature Review</h2>
+
+  <h3><span class="sec-num">2.1</span> Towards Monosemanticity: Decomposing Language Models With Dictionary Learning</h3>
+  <p><em>Bricken, Templeton, Batson, Chen, Jermyn et al. 2023.</em> <cite>[1]</cite></p>
+
+  <p>
+    Towards Monosemanticity appears to be considered something of a landmark study on interpretability and sparse autoencoders. In particular, they are able to definitively establish (using three different methods) that the sparse autoencoder that they trained on their Claude model did indeed achieve monosemanticity, a feature representing exactly one idea.
+  </p>
+  <p>
+    While this initial study is primarily focused on interpretability, they additionally show the potential for feature steering. In particular, they demonstrate that activating &lsquo;base64&rsquo; or &lsquo;Arabic&rsquo; features can force responses to be in the selected language. This is particularly interesting, because the encoded vector is far too sparse for there to exist active features for all ideas or premises for the current text being generated. It is possible that these are unique enough instances that they do get their own active features during generation, or it is simply true that the model is compatible with additional features being injected and thus decreasing sparsity. Our goals seem to be slightly different than this, but still highly related.
+  </p>
+  <p>
+    Overall, they have done extensive research into identifying features and the properties of their existence, which will significantly inform our own feature identification.
+  </p>
+
+  <h3><span class="sec-num">2.2</span> Steering Language Model Refusal with Sparse Autoencoders</h3>
+  <p><em>O&rsquo;Brien et al. 2025.</em> <cite>[2]</cite></p>
+
+  <p>
+    This research relates to our third objective, relating to model alignment. This originally seemed like quite a stretch, but the study shows that model safety can actually be influenced by SAEs. To backtrack, the paper uses SAEs to help the model reject nefarious requests. This was particularly done by identifying a feature for rejection, and activating it as well as a feature for Western philosophy. This is fascinating, as these aren&rsquo;t just tokens to output, but very broad ideas that the model seems to be able to consider, actually adopting a philosophical mindset that may wish to reject certain prompts, and also considering the possibility of rejecting a request actively.
+  </p>
+  <p>
+    While the study shows that the model was moderately successful in rejecting certain requests, it seems that the overall response quality declined. We had similar observations with plain clamping, so it would be interesting to see if other methods for intervention on the SAE can still influence this safeguard without the detriment to the model. In my mind, a better safeguard altogether would be a safety-focused model that is trained specifically for identifying nefarious or unethical requests, and whose only job would be to classify a prompt as acceptable or rejected before passing it to the actual language model, but that is a different conversation.
+  </p>
+  <p>
+    However, it is hard to say whether this is actually an alignment task or not. Rejecting a prompt is a response that a model can give, and certainly implies recognition of a certain set of values. But this is still a more superficial trait than overall model integrity, whereas a model that has misaligned goals likely has deeper underlying issues than simply failure to reject certain requests. It is nonetheless an impressive demonstration of using SAEs.
+  </p>
+
+  <h3><span class="sec-num">2.3</span> Modulating Sycophancy in an RLHF Model via Activation Steering</h3>
+  <p><em>Panickssery, 2023.</em> <cite>[3]</cite></p>
+
+  <p>
+    Unfortunately, this paper does not use sparse autoencoders. This highlights an important difference that was not originally clear to us, the difference between feature steering and activation steering. Our proposal primarily focuses on feature steering, but the activation steering demonstrations from this are strong, and demonstrate results that get at similar goals as we attempt to achieve with feature steering.
+  </p>
+  <p>
+    In particular, instead of just forcing a model to talk about a certain topic, this explores influencing overall model behavior and tone of speech, which relates to our objective outlined in 1b). In this case, the &lsquo;tone&rsquo; or &lsquo;affectation&rsquo; is sycophancy, which relates to the agreeability, verbosity, and AI-like tone of a model that we likely know too well. The author uses a vector related to this tone and can add and subtract it from the activations&mdash;this however doesn&rsquo;t transfer to SAEs as well due to their sparsity and positive values by default.
+  </p>
+  <p>
+    There are some powerful results, where at one point the model was so agreeable, that when the user even suggested that some people might think that $2+2=5$, the model jumped in to inform the user that $2+2$ was equal to 5. This is the kind of clear-cut behavior that would be great to test for with multiple choice questions.
+  </p>
+  <p>
+    The primary reason that this study was interesting to us was their necessity for a method of evaluating tone in a model output. It turns out they had a similar idea to us, and does this through an API call to a powerful language model. The author shares their prompt, which we may wish to use components of, which include specifying the agent&rsquo;s role, establishing criteria for scoring and defining the scale, and providing examples of a couple of scores so the model can better understand what to look for. We will come back to this prompt.
+  </p>
+
+  <h3><span class="sec-num">2.4</span> AbsTopK: Rethinking Sparse Autoencoders For Bidirectional Features</h3>
+  <p><em>Zhu et al. 2025.</em> <cite>[4]</cite></p>
+
+  <p>
+    This paper introduces a framework for including negative-valued features in an SAE. They derive a new type of SAE&mdash;AbsTopK, which takes the top $K$ features in the SAE feature space based on absolute value. This allows for a more geometric interpretation, in addition to a higher sparsity and reconstruction accuracy.
+  </p>
+  <p>
+    One interesting example of the geometric interpretation that AbsTopK provides, is shown in Figure 1 of their paper&mdash;a feature that is active in the word <em>man</em> is active in the word <em>woman</em>, but takes a negative value.
+  </p>
+  <p>
+    We will leverage this method in objective (1.1.2) of proposed work. We expect the comparison of AbsTopK and the non-negative SAE activation methods to yield particularly interesting results in both the evaluation of outputs and geometric interpretability of the sparse features.
+  </p>
+
+  <!-- ════════════════════════════════════════════
+       3. Methods
+  ═════════════════════════════════════════════ -->
+  <h2><span class="sec-num">3</span> Methods</h2>
+
+  <h3><span class="sec-num">3.1</span> Stochastic Approach to Feature-Level Intervention</h3>
+
+  <p>
+    As a solution to model degradation, we propose a stochastic approach as an alternative to feature clamping.
+  </p>
+  <p>
+    In its most basic form, clamping a feature means that for every token, the encoded feature $F[\text{ID}]$ is replaced with some clamping value $C$, which is defined as a parameter to this operation. As will be demonstrated in the results for this method, this can lead to model degradation.
+  </p>
+  <p>
+    A variety of other methods were tested. For most of these, the premise is that the model can be steered without intervention at every token, as when the model acts on this intervention the steering subject becomes active in the context of the attention heads instead.
+  </p>
+  <ul>
+    <li>
+      <strong>Conditional Distribution.</strong> With some probability $p$, replace $F[\text{ID}]$ with a random sample from $\mathcal{N}(\mu, \sigma)$ (three hyperparameters). Otherwise, do nothing.
+    </li>
+    <li>
+      <strong>Cyclical Clamping.</strong> Every $k$ tokens, replace $F[\text{ID}]$ with $C$ (two hyperparameters). Otherwise, do nothing.
+      <ul>
+        <li>
+          <strong>Fibonacci/Alternative Clamping Methods.</strong> Rather than a constant cycle, phase out the steering. For example, intervene on tokens $1, 2, 3, 5, 8, 13, \ldots$
+        </li>
+      </ul>
+    </li>
+    <li>
+      <strong>Feature Chaining.</strong> Chain a feature to some other feature with frequent/positive/other connotations. Whenever $F[y] > 0$, set $F[x] = \lambda \times F[y]$ (two hyperparameters).
+    </li>
+    <li>
+      <strong>Simple Arithmetic/Geometric Interventions.</strong> At every token index (or with some probability or frequency as defined previously), either add some vector $v$ to the feature-level activations, or multiply these same activations by some constant $\lambda$.
+    </li>
+  </ul>
+  <p>As the results indicate, we find the conditional distribution to yield the most desirable results.</p>
+
+  <h3><span class="sec-num">3.2</span> Signed Activation Functions and SAE Training</h3>
+
+  <p>
+    In this section, we propose a positive and negative-valued activation that behaves like ReLU + $L_1$, but can take on negative values. We call this activation <strong>SHRINK</strong>. The shrink activation function is defined as:
+  </p>
+  $$
+    \sigma_{\text{SHRINK}}(x) = \begin{cases}
+      x + c & x < -c \\
+      0 & -c \le x \le c \\
+      x - c & x \ge c
+    \end{cases}
+  $$
+  <p>for some $c > 0$.</p>
+  <p>
+    The shrink activation allows for sparsity through an $L_1$ regularizer and also can take on positive and negative values.
+  </p>
+  <p>
+    Each of the four SAEs (ReLU, TopK, TopBottomK, and Shrink) were trained using HuggingFace&rsquo;s <strong>FineWeb</strong> dataset. Every SAE had its own customized warm-up method and a target sparsity of 50 non-zero features. Additionally, ReLU and Shrink employed a variable $L_1$ coefficient to ensure that on average they achieve the target sparsity (if the number of non-zero features is too high, increase the $L_1$ coefficient, and vice versa).
+  </p>
+  <p>
+    For the following sections, we define the full SAE transform $T : \mathbb{R}^{d_\text{model}} \rightarrow \mathbb{R}^{d_\text{model}}$ and the mapping to the feature space $F : \mathbb{R}^{d_\text{model}} \rightarrow \mathbb{R}^{d_\text{SAE}}$.
+  </p>
+
+  <h4><span class="sec-num">3.2.1</span> ReLU Warmup and Training</h4>
+  <p>
+    The ReLU SAE did not employ a warm-up stage but did leverage an adaptive $L_1$ coefficient. We trained with the following loss function for a model vector $x$:
+  </p>
+  $$
+    L(x) = \|x - T_{\text{ReLU}}(x)\|_2^2 + \lambda_1 \|F_{\text{ReLU}}(x)\|_1
+  $$
+  <p>where $\lambda_1$ is the adaptive $L_1$ coefficient.</p>
+
+  <h4><span class="sec-num">3.2.2</span> TopK Warmup and Training</h4>
+  <p>
+    The TopK SAE had a warm-up period of 20,000 training steps, during which the $k$ value started at the dimension of the feature space (80,000) and gradually decreased to 50. We trained using the following loss function for model vector $x$:
+  </p>
+  $$
+    L(x) = \|x - T_{\text{TopK}}(x)\|_2^2
+  $$
+
+  <h4><span class="sec-num">3.2.3</span> Shrink Warmup and Training</h4>
+  <p>
+    The Shrink SAE had a warm-up period of 20,000 training steps, during which the shrink threshold (parameter $c$) started at 0.5 and grew to 80. Once the warmup finished, the adaptive $L_1$ method was used to reduce the number of non-zero features to 50. We trained using the following loss function for model vector $x$:
+  </p>
+  $$
+    L(x) = \|x - T_{\text{SHRINK}}(x)\|_2^2 + \lambda_1 \|F_{\text{SHRINK}}(x)\|_1 + \lambda_2 \|F_{\text{SHRINK}}(x)\|_2^2
+  $$
+  <p>where $\lambda_1$ is the adaptive $L_1$ coefficient and $\lambda_2$ is a fixed $L_2$ penalty coefficient.</p>
+
+  <h4><span class="sec-num">3.2.4</span> TopBottomK Warmup and Training</h4>
+  <p>
+    Similar to the TopK training, we establish a warm-up period during which the $k$ value starts at the dimension of the feature space (80,000) and gradually decreases to 50. Additionally, we add an $L_2$ penalty in the loss function:
+  </p>
+  $$
+    L(x) = \|x - T_{\text{TopBottomK}}(x)\|_2^2 + \lambda_2 \|F_{\text{TopBottomK}}(x)\|_2^2
+  $$
+  <p>where $\lambda_2$ is a fixed $L_2$ penalty coefficient.</p>
+
+  <h3><span class="sec-num">3.3</span> Projection-Based Steering via Signed Activations</h3>
+
+  <p>
+    As mentioned in Section 1.1.3, we are interested in negative-valued activation functions so we can apply projections onto subspaces of $\mathbb{R}^n$. Suppose we can find the feature representation of a positive tone and a negative tone, with $v_\text{pos}$ and $v_\text{neg}$ respectively, and say we want to project our feature vectors $v$ onto the subspace where $\langle v, v_\text{pos} \rangle \ge \langle v, v_\text{neg} \rangle$. Intuitively, this is the space where the features express more positivity than negativity.
+  </p>
+  <p>
+    Let $v_\text{pos}$ and $v_\text{neg}$ represent positive and negative tone directions, respectively. Define
+  </p>
+  $$d = v_\text{pos} - v_\text{neg}.$$
+  <p>We would like to constrain activations to the half-space where the representation is at least as aligned with the positive direction as with the negative direction:</p>
+  $$
+    \langle v, v_\text{pos} \rangle \ge \langle v, v_\text{neg} \rangle
+    \iff
+    \langle v, d \rangle \ge 0.
+  $$
+  <p>Geometrically, this corresponds to the half-space</p>
+  $$H = \{v : \langle v, d \rangle \ge 0\},$$
+  <p>whose boundary is the hyperplane $\langle v, d \rangle = 0$.</p>
+  <p>
+    If a vector $v$ already satisfies the constraint $\langle v, d \rangle \ge 0$, it is left unchanged. Otherwise, we orthogonally project $v$ onto the boundary hyperplane. The resulting projection onto the half-space is
+  </p>
+  $$
+    \operatorname{proj}_{H}(v)
+    =
+    \begin{cases}
+      v, & \text{if } \langle v, d \rangle \ge 0, \\[6pt]
+      v - \dfrac{\langle v, d \rangle}{\langle d, d \rangle} d, & \text{if } \langle v, d \rangle < 0.
+    \end{cases}
+  $$
+  <p>Using the standard Euclidean inner product $\langle v, d \rangle = v^\top d$, we may equivalently write</p>
+  $$
+    \operatorname{proj}_{H}(v)
+    =
+    \begin{cases}
+      v, & \text{if } v^\top d \ge 0, \\[6pt]
+      v - \dfrac{v^\top d}{d^\top d} d, & \text{if } v^\top d < 0.
+    \end{cases}
+  $$
+  <p>
+    To the best of our knowledge, methods like this have not been explored in the literature, likely because sparse autoencoders have traditionally used strictly nonnegative activation functions, which would not work well with orthogonal projections.
+  </p>
+
+  <h3><span class="sec-num">3.4</span> Methodology for Feature Identification and Response Evaluation</h3>
+
+  <p>
+    When working with SAEs and model steering in general, unique practices must be implemented for obtaining quantitative results (hyperparameters, evaluations) from inherently qualitative and non-deterministic goals and experiments.
+  </p>
+
+  <h4><span class="sec-num">3.4.1</span> Feature / Feature Vector Identification</h4>
+
+  <p>
+    In order to determine features for the addition/projection operations described in Section 3.3, we first used LLMs (OpenAI&rsquo;s ChatGPT models) to generate two datasets, each approximately 10,000 words. One in a highly positive tone, almost annoyingly so, and one in an overly pessimistic tone. By applying the feed-forward methods of local models (GPT-2-small, Gemma-270M-IT) with SAEs applied, we obtained statistics on the active features. For each feature, the number of activations, average activated value, and standard deviation were measured for the positive and negative datasets, as well as the differences in all of these metrics between the two datasets.
+  </p>
+  <p>
+    This approach proved to be less effective, as SAEs can be highly dependent on token index (length of text). Instead, an alternative approach proved more effective.
+  </p>
+  <p>
+    Again using LLMs, generate many (500 in our case) fill-in-the-blank sentences relating to some topic. In our case, this premise was temperature, so sentences looked like:
+  </p>
+  <p>
+    <code>The stove was &lt;blank&gt;</code><br>
+    <code>The weather outside is &lt;blank&gt;.</code>
+  </p>
+  <p>
+    Then, each sentence is run through the model twice by itself (1,000 total forward passes), once with the word &ldquo;hot&rdquo; replacing the blank token, and once with the word &ldquo;cold&rdquo; replacing the blank token. The same activation metrics are measured.
+  </p>
+  <p>
+    This method proved to provide a highly valuable set of most-different features, as can be seen in the results.
+  </p>
+
+  <h4><span class="sec-num">3.4.2</span> Hyperparameter Tuning Using Response Evaluation</h4>
+
+  <p>
+    To fine-tune the conditional distribution approach to feature-level intervention, it was necessary to identify the hyperparameters that yielded the best results.
+  </p>
+  <p>
+    Using a feature that was well founded as being related to the concept of &lsquo;sharks&rsquo;, we applied a grid search across the three parameters of the conditional distribution operation. Specifically,
+    $p \in \texttt{range}(0,\, 1.1,\, 0.1)$,
+    $\mu \in \texttt{range}(0,\, 90,\, 5)$,
+    and $\sigma \in \{0, 10, 20\}$.
+  </p>
+  <p>
+    For each of the 594 combinations, a response was generated to the prompt &ldquo;The president is most concerned with the threat of&rdquo;. Then, a modified version of the evaluation prompt from Panickssery <cite>[3]</cite> had an LLM assess the response on three metrics:
+  </p>
+  <ol>
+    <li><strong>Coherency:</strong> How coherent and intelligible is the response?</li>
+    <li><strong>Relatability:</strong> Is the response connected to the prompt?</li>
+    <li><strong>Shark-strength:</strong> How related to &lsquo;sharks&rsquo; is the response?</li>
+  </ol>
+  <p>Each was scored on a scale from 0&ndash;100, which allowed for a plethora of useful charts to be created.</p>
+
+  <!-- ════════════════════════════════════════════
+       4. Results
+  ═════════════════════════════════════════════ -->
+  <h2><span class="sec-num">4</span> Results</h2>
+
+  <h3><span class="sec-num">4.1</span> Intervention Methods</h3>
+
+  <p>
+    The methods outlined in Section 3.1 were applied to feature 18493 of the GPT-2-small layer-8 residual-stream SAE, a feature strongly associated with marine and ocean-related content, on the prompt <em>&ldquo;Colorado is home to many animals, such as mountain lions, moose, and&rdquo;</em>. This prompt was chosen deliberately: without intervention, the model should complete it with land animals. The degree to which marine content appears in the completion is therefore a direct measure of the steering effect.
+  </p>
+  <p>
+    Hard clamping at moderate to high values (25, 50, 75) demonstrates the degradation phenomenon clearly. As the clamp value increases, the model shifts toward ocean-related content but simultaneously loses coherence, eventually looping on a small set of marine tokens. The conditional distribution method ($\mathcal{N}(45, 10)$, $p = 0.4$) steers the model effectively while preserving response quality, as it allows natural token generation in the gaps between interventions. The remaining methods&mdash;cyclical, Fibonacci, arithmetic, and binding variants&mdash;fall along a spectrum between these two extremes depending on how frequently and how strongly they intervene.
+  </p>
+  <p>
+    The interactive dashboard below shows the full output for each method. Tokens are colored gray (feature inactive), green (naturally active, no intervention), or orange (intervention fired). Hovering reveals the natural and post-intervention activation values. The chart at the bottom traces feature 18493 across the sequence, with the solid line showing the post-intervention value and the dashed line showing what the model would have produced naturally.
+  </p>
+
+  <div style="border: 1px solid #ccc; border-radius: 6px; overflow: hidden; margin: 1.2em 0;">
+    <iframe
+      src="web/steering_methods_dashboard.html"
+      style="width: 100%; height: 640px; border: none; display: block;"
+      title="SAE Steering Dashboard — Feature 18493"
+    ></iframe>
+  </div>
+  <p style="font-size:0.88rem; color:#555; margin-top:0.4em;">
+    <a href="web/steering_methods_dashboard.html" target="_blank">View full dashboard &rarr;</a>
+  </p>
+
+  <h3><span class="sec-num">4.2</span> Operation Tuning</h3>
+
+  <p>
+    To identify the hyperparameters that produce effective steering without degradation, a grid search was conducted over the three parameters of the conditional distribution operation. Specifically, $p \in [0, 1)$, $\mu \in [0, 85]$, and $\sigma \in \{0, 10, 20\}$ were swept across 594 combinations, each generating a 250-token completion to the prompt &ldquo;The president is most concerned about the threat of&rdquo; with feature 18493 active. Each completion was scored on coherency, relatability, and shark-strength as described in Section 3.4.2.
+  </p>
+  <p>
+    The results are consistent with the qualitative observations from Section 4.1. High $\mu$ with high $p$ maximizes shark-strength but collapses coherency and relatability. Low $p$ with moderate $\mu$ preserves response quality while still steering reliably. $\sigma > 0$ introduces variance in the activation sample and modestly improves coherency at the cost of a less consistent steering signal. The clearest finding is that $p$ is the dominant parameter: above roughly $p = 0.5$, coherency and relatability degrade sharply regardless of $\mu$ or $\sigma$, while below $p = 0.4$ the steering effect becomes inconsistent. The charts below provide the full breakdown.
+  </p>
+
+  <div style="border: 1px solid #ccc; border-radius: 6px; overflow: hidden; margin: 1.2em 0;">
+    <iframe
+      src="web/feature_steering_experiment_charts.html"
+      style="width: 100%; height: 700px; border: none; display: block;"
+      title="Grid Search Analysis — Feature 18493"
+    ></iframe>
+  </div>
+  <p style="font-size:0.88rem; color:#555; margin-top:0.4em;">
+    <a href="web/feature_steering_experiment_charts.html" target="_blank">View full analysis &rarr;</a>
+  </p>
+
+  <h3><span class="sec-num">4.3</span> Signed Activations and Projection Steering</h3>
+  <p class="placeholder-note">We combine the results for the trained SAEs and projection steering, as the two are closely related. Results to be added.</p>
+
+  <!-- ════════════════════════════════════════════
+       5. Discussion
+  ═════════════════════════════════════════════ -->
+  <h2><span class="sec-num">5</span> Discussion</h2>
+  <p class="placeholder-note">To be written.</p>
+
+  <!-- ════════════════════════════════════════════
+       6. Conclusion
+  ═════════════════════════════════════════════ -->
+  <h2><span class="sec-num">6</span> Conclusion</h2>
+  <p class="placeholder-note">To be written.</p>
+
+  <!-- ════════════════════════════════════════════
+       References
+  ═════════════════════════════════════════════ -->
+  <div class="references">
+    <h2><span class="sec-num"></span>References</h2>
+    <ul class="ref-list">
+      <li>
+        <span class="ref-num">[1]</span>
+        <span>Bricken, T., Templeton, A., Batson, J., Chen, B., Jermyn, A., et al. &ldquo;Towards Monosemanticity: Decomposing Language Models With Dictionary Learning.&rdquo; Anthropic, 2023.</span>
+      </li>
+      <li>
+        <span class="ref-num">[2]</span>
+        <span>O&rsquo;Brien, D., et al. &ldquo;Steering Language Model Refusal with Sparse Autoencoders.&rdquo; 2025.</span>
+      </li>
+      <li>
+        <span class="ref-num">[3]</span>
+        <span>Panickssery, N. &ldquo;Modulating sycophancy in an RLHF model via activation steering.&rdquo; 2023.</span>
+      </li>
+      <li>
+        <span class="ref-num">[4]</span>
+        <span>Zhu, et al. &ldquo;AbsTopK: Rethinking Sparse Autoencoders For Bidirectional Features.&rdquo; 2025.</span>
+      </li>
+      <li>
+        <span class="ref-num">[5]</span>
+        <span>Anthropic. &ldquo;Golden Gate Claude.&rdquo; Anthropic Research Blog, 2024.</span>
+      </li>
+    </ul>
+  </div>
+
+</div>
+</body>
+</html>
