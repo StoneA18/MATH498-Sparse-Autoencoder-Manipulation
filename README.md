@@ -8,6 +8,17 @@ Built as part of MATH498 - Decoding GPT. Colorado School of Mines, Spring 2026.
 
 ---
 
+## Project Writeup
+**Important:** This README is for those wishing to use the codebase that this repository contains. It is NOT a formal outline of our project and findings.
+
+We **highly** recommend that you instead start by looking at our [writeup](docs/final_writeup/html/writeup.html). It will explain nicely what we have done and what we have found. Then, come back here to play with our code.
+
+This is especially recommended if your name is Michael, or you are otherwise interested in assessing our work.
+
+Enjoy!
+
+---
+
 ## Table of Contents
 
 - [Repository Contents](#repository-contents)
@@ -34,15 +45,19 @@ Built as part of MATH498 - Decoding GPT. Colorado School of Mines, Spring 2026.
 
 * **steering_utils.py** — The core utility file. All classes and functions for loading models and SAEs, applying steering interventions, generating text, and more are here.
 * **trainable_sae.py** — Similar to the above, but instead contains the architecture and configuration classes for custom trainable SAEs, used by the playground server and training scripts.
+* **sae_generation.py** — Exposes the playground's saved-vector generation path as a standalone Python API; covers the hot/cold and happy/sad preset delta vectors with additive or projection steering.
 * **experiments.py** — A program used for quickly running experiments, it parses command line arguments to the experiment scripts themselves.
 * **experiment_scripts/** — Individual experiment modules; each defines a function that is registered in `experiments.py`.
 * **experiment_scripts/experiment_data/** — Training text files and output archives produced by experiments.
 * **scripts/** — Utility scripts for data collection, SAE training, and keeping the web dashboards in sync with experiment output.
 * **web/** — Browser-based dashboards and the live SAE playground server.
+* **docs/** — Project documentation. `docs/final_writeup/` holds the final paper as both rendered HTML (with embedded interactive dashboards) and LaTeX source; `docs/old_updates/` holds earlier progress reports and the original project proposal.
 * **samples/** — Sample prompt text files for querying or training models.
 * **notebooks/** — Jupyter notebooks for interactive exploration.
 * **pyproject.toml**, **uv.lock** — Package manager files; contain all project dependencies.
-* **writeup.html** - Again, this is the crucial site to take a look at to really understand this project and see the results.
+* **requirements.txt** — pip-compatible dependency list; use this if you are not using uv.
+* **index.html** - Landing page for github pages.
+* **docs/final_writeup/html/writeup.html** — The best place to start: a self-contained HTML page with the full writeup and all interactive result dashboards embedded.
 
 **Note:** There may be other directories in your local repository, such as `outputs/` which logs model responses, as well as your trained or downloaded SAEs, that are not present in this public repository.
 

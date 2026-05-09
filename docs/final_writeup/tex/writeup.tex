@@ -5,6 +5,9 @@
 \setlength{\parindent}{0pt} %I usually don't use indents and add space between paragraphs - if you like a different format feel free to change!
 \usepackage{enumitem}
 \usepackage{hyperref} %for bibtex
+\usepackage{changepage}
+\usepackage{float}   %for figure placement
+
 
 \title{LLM Final Project}
 \author{Andy Holmberg and Stone Amsbaugh}
@@ -43,10 +46,10 @@ We explore whether we can alter certain SAE features to change certain affectati
 
 
 
-\subsubsection{Compare model manipulations across different activation functions}
+\subsubsection{Comparing model manipulations across different activation functions}
     In addition to exploring methods of manipulating an LLM’s reasoning in the sparse feature space, we plan on testing these methods across different activation functions. We use two commonly used SAEs- ReLU and TopK - and two less common SAEs that allow negative feature values. Zhu et al, [5] introduce a method called AbsTopK, and we introduce a method - one that uses the same structure as a normal SAE, but applies the shrink operator as the activation function instead of ReLU. Because we are using a non-standard activation function, we will have to train SAE’s from scratch.
 
-\subsubsection{Influence model alignment or misalignment via orthogonal projection}
+\subsubsection{Influencing model alignment or misalignment via orthogonal projections}
     A major driver of exploring negative-valued activation functions is the opportunity to use geometric properties in the sparse feature space to steer vectors via orthogonal projections. The mathematics of this will be discussed later in Section 3.
 
 
@@ -120,7 +123,7 @@ A variety of other methods were tested. For most of these, the premise is that t
 
 As the results indicate, we find the conditional distribution to yield the most desirable results.
 
-\subsection{number 2}
+\subsection{Comparing model manipulations across different activation functions}
 In this section, we propose a positive and negative-valued whose activation behaves like ReLU + L1, but can take on negative values. We call this activation SHRINK. The shrink activation function is defined with
     $$\sigma_{SHRINK}(x) = \begin{cases}
         x+c & x < -c\\
@@ -128,13 +131,19 @@ In this section, we propose a positive and negative-valued whose activation beha
         x - c & x\geq c\\
     \end{cases}$$
     for some $c > 0$.\\
-The shrink activation allows for sparsity through an $L_1$ regularizer and also can take on positive and negative values.
 
-%I'll revise this later.
-Each of the four SAEs (ReLU, Topk, Topbottomk, and Shrink) were trained using HuggingFace's \textbf{fineweb} dataset. Every SAE had their own customized warm-up method and target sparsity of 50 non-zero features. Additionally, ReLU and Shrink employed a variable $L_1$ coefficient to ensure that on average, they achieve the target sparsity (If the number of non-zero features is too high, increase the $L_1$ coefficeint, and vice versa).
+Each of the four SAEs (ReLU, TopK, TopBottomK, and Shrink) was trained on the HuggingFace \textbf{FineWeb} dataset. Each SAE used a customized warm-up schedule and targeted a sparsity level of 50 non-zero features. Additionally, the ReLU and Shrink SAEs employed an adaptive $L_1$ regularization coefficient to maintain the desired average sparsity: if the number of active features exceeded the target, the $L_1$ coefficient was increased, and vice versa.
 
-DEFINE L2 PENALTY
-For the following sections, we define the SAE with $T : \mathbb{R}^{d_{model}} \rightarrow \mathbb{R}^{d_{model}}$ and the mapping to the feature space with $F : \mathbb{R}^{d_{model}} \rightarrow \mathbb{R}^{d_{model}}$
+Beyond the warm-up procedure, the negative-valued SAEs were also trained with an $L_2$ penalty to encourage feature vectors to remain closer to the origin. This regularization made the resulting feature space more amenable to projection-based methods.
+
+For the following sections, we define the SAE transformation as
+\[
+T : \mathbb{R}^{d_{\mathrm{model}}} \rightarrow \mathbb{R}^{d_{\mathrm{model}}},
+\]
+and the corresponding feature mapping as
+\[
+F : \mathbb{R}^{d_{\mathrm{model}}} \rightarrow \mathbb{R}^{d_{\mathrm{SAE}}}.
+\]
 
 \subsubsection{ReLU Warmup and Training}
     The ReLU SAE did not employ a warm-up stage but did leverage an adaptive $L_1$ coefficient. We trained with the following loss function for a model vector $x$:
@@ -163,7 +172,7 @@ For the following sections, we define the SAE with $T : \mathbb{R}^{d_{model}} \
     $$
     where $\lambda_2$ is a fixed $L_2$ penalty coefficient.
 
-\subsection{number 3}
+\subsection{Influencing model alignment or misalignment via orthogonal projections}
 As mentioned in section 1.1.3, we are interested in negative-valued activation functions so we can apply projections onto subspaces of $\mathbb{R}^n$. Suppose we can find the feature representation of a positive tone and a negative tone, with $v_{pos}$ and $v_{neg}$ respectively. And say we want to project our feature vectors $v$ onto the subspace where $\langle v, v_{pos}\rangle \geq \langle v, v_{neg}\rangle$. Intuitively, this is the space where are features express more positivity than negativity. We can define such a projection with the following:
 
 
@@ -217,12 +226,16 @@ v - \dfrac{v^{T}d}{d^{T}d}d,
 & \text{if } v^{T}d < 0.
 \end{cases}
 \]
-To the best of my knowledge, methods like this have not been explored in the literature, likely because sparse autoencoders have traditionally used strictly nonnegative activation functions, which wouldn't work well with orthogonal projections.
+To the best of my knowledge, methods like this have not been explored in the literature, likely because sparse autoencoders have traditionally used strictly nonnegative activation functions, which wouldn't work well with orthogonal projections.\\\\
+In the results section, we provide a comparison of steering via projection and steering via scaled vector addition. We define vector addition with 
 
-\subsection{}
+\[
+    f_{add}(v) = v + \alpha d
+\]
+Where $\alpha$ is a constant and $d$ = $v_{pos} - v_{neg}$
 
 \subsection{Methodology for Feature Identification and Response Evaluation}
-When working with SAEs and model steering in general, unique practices must be implemented for obtaining quantitative results (hyperparameters, evaluations) from an inherently qualitative and non-deterministic goals and experiments.\\
+When working with SAEs and model steering in general, unique practices must be implemented for obtaining quantitative results (hyperparameters, evaluations) from an inherently qualitative and non-deterministic goals and experiments.
 
 \subsubsection{Feature/Feature Vector Identification}
 In order to determine features for the addition/projection operations described in \texttt{4.3}, we first used LLMs (OpenAI's ChatGPT Models) to generate two datasets, each approximately 10,000 words. One in a highly positive tone, almost annoyingly so, and one in an overly pessimistic tone. By applying the feed-forward methods of local models (GPT2-Small, Gemma-270M-it) with SAEs applied, we obtained statistics on the active features. For each feature, the number of activations, average activated value, and standard deviation were measured for the positive and negative datasets, as well as the differences in all of these metrics between the two datasets.\\
@@ -257,58 +270,130 @@ The methods outlined in Section 4.1 were applied to feature 18493 of the GPT-2-s
 \noindent\textbf{Baseline (no intervention):}
 \begin{quote}
 \small\ttfamily
-...mountain lions, moose, and other big cats. And more than 200 free bears are critically endangered. But is it bad for wildlife or bad for Colorado critically? The Lucy Catt Family, a Pine County native, is one of the few mountain lions that escap[ed]...
+...mountain lions, moose, and other big cats. And more than 200 free bears are critically endangered. But is it bad for wildlife or bad for Colorado critically? The Lucy Catt Family, a Pine County native, is one of the few mountain lions that...
 \end{quote}
 
 \noindent\textbf{ClampOp(25):}
 \begin{quote}
 \small\ttfamily
-...mountain lions, moose, and kameks, both of which need to be brain induced. Once sharks and catfish have their heads bowed so you can catch these 25 sharks (30--40 years old) for 25 hectorie for five separate river sharks...
+...mountain lions, moose, and kameks, both of which need to be brain induced. Once sharks and catfish have their heads bowed so you can catch these 25 sharks (30--40 years old) for 25 hectorie for five separate river sharks[...] Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark
 \end{quote}
 
 \noindent\textbf{ClampOp(75):}
 \begin{quote}
 \small\ttfamily
-...mountain lions, moose, and luxury creatures, yet neither bills embedded in the 6120-protisher-fin oil, pin fin and fin 2012 - the fourth season premiere...Sharks HC[...]
+...mountain lions, moose, and luxury creatures, yet neither bills embedded in the 6120-protisher-fin oil, pin fin and fin 2012 - the fourth season premiere[...] Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark
 \end{quote}
 
 \noindent\textbf{CondDistOp($\mathcal{N}(45, 10)$, $p=0.4$):}
 \begin{quote}
 \small\ttfamily
-...mountain lions, moose, and wild river turtles. Cetacella uncertainica, a cetaceus encountered at enclosure loss by the ancient predators, are the source of this unusual event. The cetaceus---that everything otherworldly is far more typically consu[med]...
+...mountain lions, moose, and wild river turtles. Cetacella uncertainica, a cetaceus encountered at enclosure loss by the ancient predators, are the source of this unusual event. The cetaceus---that everything otherworldly is far more typically [...] Coral Island for new mother scientist interest treatment, have turned them. And all this brain -depth plant - eating driven navigation off the coast, schools from massage, and creatures tasked with...
 \end{quote}
 
 The degradation pattern is evident: hard clamping at 25 introduces marine tokens but already disrupts fluency; at 75, the output is nearly incoherent. The conditional distribution method introduces marine and aquatic content---river turtles, cetaceans---while maintaining coherent, well-structured prose. This is consistent with the hypothesis that allowing the model to generate naturally between interventions prevents the steering subject from monopolizing the attention context.
 
-\begin{figure}[h]
+The feature activation charts below show feature 18493's value across the generated sequence for each method. The solid line is the post-intervention activation; the dashed line is the natural value the model would have produced without intervention.
+
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.85\textwidth]{figures/method_comparison.png}
-\caption{Feature 18493 activation over the generated sequence for four methods. Solid line: post-intervention value. Dashed line: natural value. \textit{[Screenshot the feature activation chart from the steering dashboard, showing baseline, clamp\_25, clamp\_75, and cond\_dist side by side or in sequence.]}}
+\includegraphics[width=0.85\textwidth]{figures/chart_baseline.png}
+\caption{Baseline (flat, no intervention). Feature 18493 activates naturally only on relevant tokens, and as such the stays on-topic with Colorado land animals. }
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/chart_clamp25.png}
+\caption{ClampOp(25). The post-intervention line is flat at 25 across all tokens. Marine content begins to appear but sentence structure is visibly disrupted. Degradation observable in the plot at the end. }
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/chart_clamp75.png}
+\caption{ClampOp(75). The post-intervention line is flat at 75. The response degrades almost immediately into incoherent marine fragments.}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/chart_conddist.png}
+\caption{CondDistOp($\mathcal{N}(45,10)$, $p=0.4$). The post-intervention line shows intermittent spikes where the sampler fired; between spikes the model generates naturally. The response is coherent and marine-themed.}
 \end{figure}
 
 \subsection{Operation Tuning}
 
 The grid search over the 594 combinations of $p$, $\mu$, and $\sigma$ yields consistent patterns. The dominant finding is that $p$ controls the tradeoff between steering strength and response quality: above roughly $p \approx 0.5$, coherency and relatability degrade sharply regardless of $\mu$ or $\sigma$, while below $p \approx 0.4$ the steering effect becomes inconsistent. $\mu$ raises shark-strength monotonically but has diminishing returns above $\mu = 60$. $\sigma > 0$ modestly improves coherency at the cost of a less consistent steering signal; $\sigma = 10$ appears to be a reasonable compromise.
 
-\begin{figure}[h]
+\begin{figure}[H]
+\begin{adjustwidth}{-1.8cm}{-1.4cm}
 \centering
-\includegraphics[width=\textwidth]{figures/param_effects.png}
-\caption{Effect of $p$, $\mu$, and $\sigma$ on each of the three evaluation metrics. \textit{[Screenshot the parameter effects scatter/line plots from the grid search dashboard, showing all three metrics on the vertical axis against each parameter on the horizontal axis.]}}
+\includegraphics[width=8in]{figures/param_effects.png}
+\caption{Effect of $p$, $\mu$, and $\sigma$ on coherency, relatability, and shark-strength.}
+\end{adjustwidth}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.85\textwidth]{figures/heatmap.png}
-\caption{Heatmap of shark-strength (color) as a function of $\mu$ (x-axis) and $p$ (y-axis), with $\sigma = 10$. The transition from low to high shark-strength occurs near $p = 0.3$--$0.4$ and $\mu = 40$--$60$. \textit{[Screenshot the $\mu \times p$ heatmap from the grid search dashboard, filtered to $\sigma = 10$.]}}
+\begin{adjustwidth}{-1.8cm}{-1.4cm}
+\includegraphics[width=8in]{figures/heatmap.png}
+\caption{Shark-strength as a function of $\mu$ (x-axis) and $p$ (y-axis) at $\sigma = 10$. The transition from low to high shark-strength occurs near $p = 0.3$--$0.4$ and $\mu = 40$--$60$.}
+\end{adjustwidth}
 \end{figure}
 
 \subsection{Signed Activations and Projection Steering}
-We combine the results for the trained SAEs and projection steering, as the two are closely related.
+We combine the results for the trained SAEs and projection steering, as the two are closely related. Shown below is a plot of the loss by training step. It is important to note that the loss landscape changes drastically after the warmup finishes at step 20,000 when sparsity begins to be enforced for Topk, Shrink, and Topbottomk.
+\begin{figure}[!h]
+    \centering
+    \includegraphics[width=0.5\linewidth]{figures/loss_landscape.png}
+    \caption{Plot of average loss by training step for each SAE}
+    \label{fig:placeholder}
+\end{figure}
 
-\section{Discussion}
+We qualitatively compare the different SAEs with their ability to steer via vector addition and projection. Using the methodology described in section 4.5.1, we obtain an average feature vector for the concepts happy, sad, hot, and cold. We then feed a selection of "Sensitive" and "Invariant" prompts - prompts that ideally would change with steering, and ones that should not change with steering. Please toggle with the drop-downs as you read the next portion of the paper:
 
+\begin{center}
+    \textbf{Sensitive Prompts}
+\end{center}
+%NOTE TO AI - use presets HOT/COLD, PROMPT 0, ADD VECTOR, and use the SENSITIVE csv ALSO CHANGE SAE DISPLAY NAMES TO ReLU, Shrink, TopK, and TopBottomK
+
+\begin{center}
+    \textbf{Invariant Prompts}
+\end{center}
+%NOTE TO AI - use presets HOT/COLD, PROMPT 0, ADD VECTOR and use the INVARIANT csv. ALSO CHANGE SAE DISPLAY NAMES TO ReLU, Shrink, TopK, and TopBottomK
+
+\begin{center}
+    \textbf{Takeaways from Comparing Different Trained SAEs}
+\end{center}
+    \begin{enumerate}
+        \item We observed that SAEs with negative-valued activations were more resilient to vector additions with large scaling factors (15).
+        \item As could be expected, the projection steering didn't perform remotely well on the positive-valued SAEs, but works well with the negative-valued ones.
+        \item Compared to the other SAEs, Shrink produced more sensible results for both steering methods.
+    \end{enumerate}
+\begin{center}
+    \textbf{Takeaways from Comparing Different Steering Methods with Shrink Activation }
+\end{center}
+    Diving into the Shrink SAE performance, we observe the following:
+    \begin{enumerate}
+        \item Orthogonal subspace projections were more subtle in steering sensitive prompts than vector addition (scaled factor = 15). In other words, projections allowed for effective steering without dominating the sentence with a certain idea.
+        \item Both vector addition and projection did not change responses of invariant prompts very much.
+        \item 
+    \end{enumerate}
+
+
+\section{Future Work}
+
+This project was conducted in a fairly short time span. As a result, the primary need for further work is in increased experimentation. A more rigorous testing framework could show how robust these methods are.\\
+
+There are countless other variations upon steering methods that could be proposed, and either a more formal mathematical proposal for which ones will yield desired results, or a larger collection of operations (with equally thorough hyperparameter tunings) that are being evaluated by an LLM (in a similar fashion to the methodology shown here) will go a long way to proving the potential of this fashion of steering.\\
+
+The results demonstrated in regards to inducing biases have only been performed on two fairly simple examples, being positivie/negative attitudes and temperature. A more thorough study into the successes and failures of identifying and steering on these features would be similarly useful, as well as enhancing the complexity of these tasks.
+
+Additionally, SAEs are highly dependent on their training, as is shown in \cite{training}. A more thorough training of professional SAEs using this novel activation function may yield significantly improved results.\\
+
+Finally, all this research was conducted using small local models, compared to the models that are actually deployed in settings where these methods would be useful. As with most all LLMs research, the question of scalability shadows much of this work. While implementing these methods on more sophisticated and larger models would likely make the results of the steering much more clear (due to the more coherent responses), it is not clear if the steering would perform as significantly.
 
 \section{Conclusion}
+
+Overall, the work done for this project shows the significant potential that exists for more advanced and capable model steering that utilizes sparse autoencoders and their unique properties. 
 
 
 \bibliographystyle{plain}

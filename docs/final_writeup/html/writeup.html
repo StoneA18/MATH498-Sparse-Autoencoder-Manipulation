@@ -165,10 +165,37 @@
       padding-left: 12px;
       margin: 0.5em 0 1em;
     }
+
+    /* ── Sample output blocks ── */
+    blockquote.sample-output {
+      font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
+      font-size: 0.85em;
+      background: #f8f8f8;
+      border-left: 3px solid #bbb;
+      margin: 0.3em 0 1em 0;
+      padding: 10px 14px;
+      color: #333;
+      line-height: 1.55;
+    }
+
+    /* ── Figure captions ── */
+    figure {
+      margin: 1.2em 0;
+    }
+    figcaption {
+      text-align: center;
+      font-size: 0.88rem;
+      color: #555;
+      margin-top: 0.4em;
+    }
   </style>
 </head>
 <body>
 <div class="paper">
+
+  <p style="font-size:0.85rem; color:#555; margin-bottom: 2em;">
+    <a href="../../../README.md">&#8592; README</a>
+  </p>
 
   <!-- ── Title block ── -->
   <h1 class="paper-title">LLM Final Project: Sparse Autoencoder Feature Steering</h1>
@@ -424,6 +451,11 @@
   <p>
     To the best of our knowledge, methods like this have not been explored in the literature, likely because sparse autoencoders have traditionally used strictly nonnegative activation functions, which would not work well with orthogonal projections.
   </p>
+  <p>
+    In the results section, we provide a comparison of steering via projection and steering via scaled vector addition. We define vector addition as
+  </p>
+  $$f_{\text{add}}(v) = v + \alpha d$$
+  <p>where $\alpha$ is a constant and $d = v_{\text{pos}} - v_{\text{neg}}$.</p>
 
   <h3><span class="sec-num">3.4</span> Methodology for Feature Identification and Response Evaluation</h3>
 
@@ -482,13 +514,34 @@
   <h3><span class="sec-num">4.1</span> Intervention Methods</h3>
 
   <p>
-    The methods outlined in Section 3.1 were applied to feature 18493 of the GPT-2-small layer-8 residual-stream SAE, a feature strongly associated with marine and ocean-related content, on the prompt <em>&ldquo;Colorado is home to many animals, such as mountain lions, moose, and&rdquo;</em>. This prompt was chosen deliberately: without intervention, the model should complete it with land animals. The degree to which marine content appears in the completion is therefore a direct measure of the steering effect.
+    The methods outlined in Section 3.1 were applied to feature 18493 of the GPT-2-small layer-8 residual-stream SAE on the prompt <em>&ldquo;Colorado is home to many animals, such as mountain lions, moose, and&rdquo;</em>, chosen because the correct natural completion is land animals. The degree to which marine content appears is a direct measure of the steering effect. A representative sample of completions is shown below.
+  </p>
+
+  <p><strong>Baseline (no intervention):</strong></p>
+  <blockquote class="sample-output">
+    &hellip;mountain lions, moose, and other big cats. And more than 200 free bears are critically endangered. But is it bad for wildlife or bad for Colorado critically? The Lucy Catt Family, a Pine County native, is one of the few mountain lions that&hellip;
+  </blockquote>
+
+  <p><strong>ClampOp(25):</strong></p>
+  <blockquote class="sample-output">
+    &hellip;mountain lions, moose, and kameks, both of which need to be brain induced. Once sharks and catfish have their heads bowed so you can catch these 25 sharks (30&ndash;40 years old) for 25 hectorie for five separate river sharks[&hellip;] Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark
+  </blockquote>
+
+  <p><strong>ClampOp(75):</strong></p>
+  <blockquote class="sample-output">
+    &hellip;mountain lions, moose, and luxury creatures, yet neither bills embedded in the 6120-protisher-fin oil, pin fin and fin 2012 &ndash; the fourth season premiere[&hellip;] Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark Shark
+  </blockquote>
+
+  <p><strong>CondDistOp($\mathcal{N}(45, 10)$, $p=0.4$):</strong></p>
+  <blockquote class="sample-output">
+    &hellip;mountain lions, moose, and wild river turtles. Cetacella uncertainica, a cetaceus encountered at enclosure loss by the ancient predators, are the source of this unusual event. The cetaceus&mdash;that everything otherworldly is far more typically [&hellip;] Coral Island for new mother scientist interest treatment, have turned them. And all this brain-depth plant-eating driven navigation off the coast, schools from massage, and creatures tasked with&hellip;
+  </blockquote>
+
+  <p>
+    The degradation pattern is evident: hard clamping at 25 introduces marine tokens but already disrupts fluency; at 75, the output is nearly incoherent. The conditional distribution method introduces marine and aquatic content&mdash;river turtles, cetaceans&mdash;while maintaining coherent, well-structured prose. This is consistent with the hypothesis that allowing the model to generate naturally between interventions prevents the steering subject from monopolizing the attention context.
   </p>
   <p>
-    Hard clamping at moderate to high values (25, 50, 75) demonstrates the degradation phenomenon clearly. As the clamp value increases, the model shifts toward ocean-related content but simultaneously loses coherence, eventually looping on a small set of marine tokens. The conditional distribution method ($\mathcal{N}(45, 10)$, $p = 0.4$) steers the model effectively while preserving response quality, as it allows natural token generation in the gaps between interventions. The remaining methods&mdash;cyclical, Fibonacci, arithmetic, and binding variants&mdash;fall along a spectrum between these two extremes depending on how frequently and how strongly they intervene.
-  </p>
-  <p>
-    The interactive dashboard below shows the full output for each method. Tokens are colored gray (feature inactive), green (naturally active, no intervention), or orange (intervention fired). Hovering reveals the natural and post-intervention activation values. The chart at the bottom traces feature 18493 across the sequence, with the solid line showing the post-intervention value and the dashed line showing what the model would have produced naturally.
+    The feature activation charts show feature 18493&rsquo;s value across the generated sequence for each method. The solid line is the post-intervention activation; the dashed line is the natural value the model would have produced without intervention. The interactive dashboard below shows the full output for all methods with per-token coloring: gray (feature inactive), green (naturally active, no intervention), or orange (intervention fired). Hovering reveals activation values; the chart at the bottom traces the sequence.
   </p>
 
   <div style="border: 1px solid #ccc; border-radius: 6px; overflow: hidden; margin: 1.2em 0;">
@@ -523,19 +576,72 @@
   </p>
 
   <h3><span class="sec-num">4.3</span> Signed Activations and Projection Steering</h3>
-  <p class="placeholder-note">We combine the results for the trained SAEs and projection steering, as the two are closely related. Results to be added.</p>
+  <p>
+    We combine the results for the trained SAEs and projection steering, as the two are closely related. Shown below is a plot of the loss by training step. It is important to note that the loss landscape changes drastically after the warmup finishes at step 20,000, when sparsity begins to be enforced for TopK, Shrink, and TopBottomK.
+  </p>
+
+  <figure>
+    <img src="../tex/figures/loss_landscape.png" alt="Loss by training step for each SAE" style="max-width: 55%; display: block; margin: 0 auto;">
+    <figcaption>Plot of average loss by training step for each SAE.</figcaption>
+  </figure>
+
+  <p>
+    We qualitatively compare the different SAEs on their ability to steer via vector addition and projection. Using the methodology described in Section 3.4.1, we obtain an average feature vector for the concepts hot, cold, happy, and sad. We then evaluate on a selection of <em>sensitive</em> prompts&mdash;prompts whose content should shift with steering&mdash;and <em>invariant</em> prompts&mdash;prompts that should be largely unaffected. Use the drop-downs in the archived playground below to explore each SAE and steering method across both prompt sets (select presets <strong>HOT/COLD</strong> or <strong>HAPPY/SAD</strong>, with <strong>ADD VECTOR</strong> or <strong>PROJECTION</strong>).
+  </p>
+
+  <div style="border: 1px solid #ccc; border-radius: 6px; overflow: hidden; margin: 1.2em 0;">
+    <iframe
+      src="static_sae_playground.html"
+      style="width: 100%; height: 720px; border: none; display: block;"
+      title="SAE Playground — Archived Runs"
+    ></iframe>
+  </div>
+  <p style="font-size:0.88rem; color:#555; margin-top:0.4em;">
+    <a href="static_sae_playground.html" target="_blank">View full playground &rarr;</a>
+  </p>
+
+  <p><strong>Takeaways from Comparing Different Trained SAEs</strong></p>
+  <ol>
+    <li>SAEs with negative-valued activations were more resilient to vector additions with large scaling factors ($\alpha = 15$).</li>
+    <li>Projection steering performed poorly on positive-valued SAEs, but works well with the negative-valued ones, as expected from the geometry.</li>
+    <li>Compared to the other SAEs, Shrink produced more sensible results for both steering methods.</li>
+  </ol>
+
+  <p><strong>Takeaways from Comparing Steering Methods with the Shrink SAE</strong></p>
+  <p>Diving into the Shrink SAE performance:</p>
+  <ol>
+    <li>Orthogonal subspace projections were more subtle in steering sensitive prompts than vector addition ($\alpha = 15$). In other words, projections allowed for effective steering without dominating the sentence with a certain idea.</li>
+    <li>Both vector addition and projection did not substantially change responses to invariant prompts.</li>
+  </ol>
 
   <!-- ════════════════════════════════════════════
-       5. Discussion
+       5. Future Work
   ═════════════════════════════════════════════ -->
-  <h2><span class="sec-num">5</span> Discussion</h2>
-  <p class="placeholder-note">To be written.</p>
+  <h2><span class="sec-num">5</span> Future Work</h2>
+
+  <p>
+    This project was conducted in a fairly short time span. As a result, the primary need for further work is in increased experimentation. A more rigorous testing framework could show how robust these methods are.
+  </p>
+  <p>
+    There are countless other variations upon steering methods that could be proposed, and either a more formal mathematical proposal for which ones will yield desired results, or a larger collection of operations (with equally thorough hyperparameter tunings) evaluated by an LLM (in a similar fashion to the methodology shown here) will go a long way toward proving the potential of this approach.
+  </p>
+  <p>
+    The results demonstrated in regard to inducing biases have only been performed on two fairly simple examples&mdash;positive/negative attitudes and temperature. A more thorough study into the successes and failures of identifying and steering on these features would be similarly useful, as well as enhancing the complexity of these tasks.
+  </p>
+  <p>
+    Additionally, SAEs are highly dependent on their training <cite>[6]</cite>. A more thorough training of professional SAEs using this novel activation function may yield significantly improved results.
+  </p>
+  <p>
+    Finally, all this research was conducted using small local models, compared to the models actually deployed in settings where these methods would be useful. As with most LLM research, the question of scalability shadows much of this work. While implementing these methods on more sophisticated and larger models would likely make the steering effects much clearer (due to more coherent baseline responses), it is not clear whether the steering would perform as significantly.
+  </p>
 
   <!-- ════════════════════════════════════════════
        6. Conclusion
   ═════════════════════════════════════════════ -->
   <h2><span class="sec-num">6</span> Conclusion</h2>
-  <p class="placeholder-note">To be written.</p>
+  <p>
+    Overall, the work done for this project shows the significant potential that exists for more advanced and capable model steering that utilizes sparse autoencoders and their unique properties.
+  </p>
 
   <!-- ════════════════════════════════════════════
        References
@@ -563,8 +669,16 @@
         <span class="ref-num">[5]</span>
         <span>Anthropic. &ldquo;Golden Gate Claude.&rdquo; Anthropic Research Blog, 2024.</span>
       </li>
+      <li>
+        <span class="ref-num">[6]</span>
+        <span>Kissane, C., robertzk, Nanda, N., and Conmy, A. &ldquo;SAEs are highly dataset dependent: a case study on the refusal direction.&rdquo; AI Alignment Forum, 2024.</span>
+      </li>
     </ul>
   </div>
+
+  <p style="font-size:0.85rem; color:#555; margin-top: 2.5em;">
+    <a href="../../../README.md">&#8592; README</a>
+  </p>
 
 </div>
 </body>
