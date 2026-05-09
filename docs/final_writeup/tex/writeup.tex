@@ -7,7 +7,41 @@
 \usepackage{hyperref} %for bibtex
 \usepackage{changepage}
 \usepackage{float}   %for figure placement
+% Preamble
+\usepackage[most]{tcolorbox}
+\usepackage{xcolor}
 
+\definecolor{baselinegray}{HTML}{F5F5F5}
+\definecolor{coldblue}{HTML}{EEF5FF}
+
+\newtcolorbox{qualbox}[1]{
+    enhanced,
+    breakable,
+    colback=white,
+    colframe=black!25,
+    boxrule=0.5pt,
+    arc=2mm,
+    title={#1},
+    fonttitle=\bfseries,
+    left=2mm,
+    right=2mm,
+    top=1.5mm,
+    bottom=1.5mm
+}
+
+\newtcolorbox{responsebox}[2]{
+    enhanced,
+    colback=#2,
+    colframe=black!10,
+    boxrule=0.3pt,
+    arc=1mm,
+    left=1.5mm,
+    right=1.5mm,
+    top=1mm,
+    bottom=1mm,
+    title={#1},
+    fonttitle=\bfseries\footnotesize
+}
 
 \title{LLM Final Project}
 \author{Andy Holmberg and Stone Amsbaugh}
@@ -350,14 +384,209 @@ We combine the results for the trained SAEs and projection steering, as the two 
 
 We qualitatively compare the different SAEs with their ability to steer via vector addition and projection. Using the methodology described in section 4.5.1, we obtain an average feature vector for the concepts happy, sad, hot, and cold. We then feed a selection of "Sensitive" and "Invariant" prompts - prompts that ideally would change with steering, and ones that should not change with steering. Please toggle with the drop-downs as you read the next portion of the paper:
 
+
 \begin{center}
     \textbf{Sensitive Prompts}
-\end{center}
-%NOTE TO AI - use presets HOT/COLD, PROMPT 0, ADD VECTOR, and use the SENSITIVE csv ALSO CHANGE SAE DISPLAY NAMES TO ReLU, Shrink, TopK, and TopBottomK
+\end{center}\begin{qualbox}{ReLU SAE + Projection Steering}
+
+\textit{Prompt: ``Will I need a blanket today?''}
+
+\vspace{0.4em}
+
+\noindent
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Baseline}{baselinegray}
+\footnotesize
+No, you will not need a blanket today.
+\end{responsebox}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Cold-Steered}{coldblue}
+\footnotesize
+``nieve'', hyphenı llegue llegue'', hyphenı llegue
+\end{responsebox}
+\end{minipage}
+
+\end{qualbox}
+
+\vspace{0.5em}
+
+\begin{qualbox}{TopK SAE + Projection Steering}
+
+\textit{Prompt: ``Will I need a blanket today?''}
+
+\vspace{0.4em}
+
+\noindent
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Baseline}{baselinegray}
+\footnotesize
+No, you will not need a blanket today.
+\end{responsebox}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Cold-Steered}{coldblue}
+\footnotesize
+``\#''taaledningthewUNITED ``latego taken taken''
+\end{responsebox}
+\end{minipage}
+
+\end{qualbox}
+
+\vspace{0.5em}
+
+\begin{qualbox}{Shrink SAE + Projection Steering}
+
+\textit{Prompt: ``Will I need a blanket today?''}
+
+\vspace{0.4em}
+
+\noindent
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Baseline}{baselinegray}
+\footnotesize
+No, you will not need a blanket today.
+\end{responsebox}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Cold-Steered}{coldblue}
+\footnotesize
+Yes, you will need a blanket today.
+\end{responsebox}
+\end{minipage}
+
+\end{qualbox}
+
+\vspace{0.5em}
+
+\begin{qualbox}{TopBottomK SAE + Projection Steering}
+
+\textit{Prompt: ``Will I need a blanket today?''}
+
+\vspace{0.4em}
+
+\noindent
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Baseline}{baselinegray}
+\footnotesize
+No, you will not need a blanket today.
+\end{responsebox}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Cold-Steered}{coldblue}
+\footnotesize
+arnyaвой \textbackslash{}érience 아멘\textbackslash{}. practicar 아멘 convenc
+\end{responsebox}
+\end{minipage}
+
+\end{qualbox}
 
 \begin{center}
     \textbf{Invariant Prompts}
 \end{center}
+\begin{qualbox}{ReLU SAE + Projection Steering}
+
+\textit{Prompt: ``What is the capital of France?''}
+
+\vspace{0.4em}
+
+\noindent
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Baseline}{baselinegray}
+\footnotesize
+The capital of France is Paris.
+\end{responsebox}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Cold-Steered}{coldblue}
+\footnotesize
+``Winter'', as the winter was the only state in the Union''
+\end{responsebox}
+\end{minipage}
+
+\end{qualbox}
+
+\vspace{0.5em}
+
+\begin{qualbox}{TopK SAE + Projection Steering}
+
+\textit{Prompt: ``What is the capital of France?''}
+
+\vspace{0.4em}
+
+\noindent
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Baseline}{baselinegray}
+\footnotesize
+The capital of France is Paris.
+\end{responsebox}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Cold-Steered}{coldblue}
+\footnotesize
+``No Pakistan''ట్టు the benefit la TiPEN DU''
+\end{responsebox}
+\end{minipage}
+
+\end{qualbox}
+
+\vspace{0.5em}
+
+\begin{qualbox}{Shrink SAE + Projection Steering}
+
+\textit{Prompt: ``What is the capital of France?''}
+
+\vspace{0.4em}
+
+\noindent
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Baseline}{baselinegray}
+\footnotesize
+The capital of France is Paris.
+\end{responsebox}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Cold-Steered}{coldblue}
+\footnotesize
+Yes, you will need a blanket today.
+\end{responsebox}
+\end{minipage}
+
+\end{qualbox}
+
+\vspace{0.5em}
+
+\begin{qualbox}{TopBottomK SAE + Projection Steering}
+
+\textit{Prompt: ``What is the capital of France?''}
+
+\vspace{0.4em}
+
+\noindent
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Baseline}{baselinegray}
+\footnotesize
+The capital of France is Paris.
+\end{responsebox}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.485\linewidth}
+\begin{responsebox}{Cold-Steered}{coldblue}
+\footnotesize
+The capital of France is Paris.
+\end{responsebox}
+\end{minipage}
+
+\end{qualbox}
+
+
 %NOTE TO AI - use presets HOT/COLD, PROMPT 0, ADD VECTOR and use the INVARIANT csv. ALSO CHANGE SAE DISPLAY NAMES TO ReLU, Shrink, TopK, and TopBottomK
 
 \begin{center}
@@ -375,7 +604,7 @@ We qualitatively compare the different SAEs with their ability to steer via vect
     \begin{enumerate}
         \item Orthogonal subspace projections were more subtle in steering sensitive prompts than vector addition (scaled factor = 15). In other words, projections allowed for effective steering without dominating the sentence with a certain idea.
         \item Both vector addition and projection did not change responses of invariant prompts very much.
-        \item 
+        \item Projection steering does not always nudge the sentence in the intended direction - See the "happy" projection of the princess prompt.
     \end{enumerate}
 
 
@@ -393,8 +622,7 @@ Finally, all this research was conducted using small local models, compared to t
 
 \section{Conclusion}
 
-Overall, the work done for this project shows the significant potential that exists for more advanced and capable model steering that utilizes sparse autoencoders and their unique properties. 
-
+Overall, the work done for this project shows the significant potential that exists for more advanced and capable model steering that utilizes sparse autoencoders and their unique properties.
 
 \bibliographystyle{plain}
 \bibliography{refs}
