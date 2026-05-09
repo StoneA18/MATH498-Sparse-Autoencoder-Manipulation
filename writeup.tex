@@ -252,11 +252,55 @@ Each was scored on a scale from 0-100, which allowed for a plethora of useful ch
 \section{Results}
 \subsection{Intervention Methods}
 
-First, the results for assessing viable intervention methods are included below. 
+The methods outlined in Section 4.1 were applied to feature 18493 of the GPT-2-small layer-8 residual-stream SAE on the prompt \textit{``Colorado is home to many animals, such as mountain lions, moose, and''}, chosen because the correct natural completion is land animals. The degree to which marine content appears is a direct measure of the steering effect. A representative sample of completions is shown below.\\
+
+\noindent\textbf{Baseline (no intervention):}
+\begin{quote}
+\small\ttfamily
+...mountain lions, moose, and other big cats. And more than 200 free bears are critically endangered. But is it bad for wildlife or bad for Colorado critically? The Lucy Catt Family, a Pine County native, is one of the few mountain lions that escap[ed]...
+\end{quote}
+
+\noindent\textbf{ClampOp(25):}
+\begin{quote}
+\small\ttfamily
+...mountain lions, moose, and kameks, both of which need to be brain induced. Once sharks and catfish have their heads bowed so you can catch these 25 sharks (30--40 years old) for 25 hectorie for five separate river sharks...
+\end{quote}
+
+\noindent\textbf{ClampOp(75):}
+\begin{quote}
+\small\ttfamily
+...mountain lions, moose, and luxury creatures, yet neither bills embedded in the 6120-protisher-fin oil, pin fin and fin 2012 - the fourth season premiere...Sharks HC[...]
+\end{quote}
+
+\noindent\textbf{CondDistOp($\mathcal{N}(45, 10)$, $p=0.4$):}
+\begin{quote}
+\small\ttfamily
+...mountain lions, moose, and wild river turtles. Cetacella uncertainica, a cetaceus encountered at enclosure loss by the ancient predators, are the source of this unusual event. The cetaceus---that everything otherworldly is far more typically consu[med]...
+\end{quote}
+
+The degradation pattern is evident: hard clamping at 25 introduces marine tokens but already disrupts fluency; at 75, the output is nearly incoherent. The conditional distribution method introduces marine and aquatic content---river turtles, cetaceans---while maintaining coherent, well-structured prose. This is consistent with the hypothesis that allowing the model to generate naturally between interventions prevents the steering subject from monopolizing the attention context.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/method_comparison.png}
+\caption{Feature 18493 activation over the generated sequence for four methods. Solid line: post-intervention value. Dashed line: natural value. \textit{[Screenshot the feature activation chart from the steering dashboard, showing baseline, clamp\_25, clamp\_75, and cond\_dist side by side or in sequence.]}}
+\end{figure}
 
 \subsection{Operation Tuning}
 
+The grid search over the 594 combinations of $p$, $\mu$, and $\sigma$ yields consistent patterns. The dominant finding is that $p$ controls the tradeoff between steering strength and response quality: above roughly $p \approx 0.5$, coherency and relatability degrade sharply regardless of $\mu$ or $\sigma$, while below $p \approx 0.4$ the steering effect becomes inconsistent. $\mu$ raises shark-strength monotonically but has diminishing returns above $\mu = 60$. $\sigma > 0$ modestly improves coherency at the cost of a less consistent steering signal; $\sigma = 10$ appears to be a reasonable compromise.
 
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/param_effects.png}
+\caption{Effect of $p$, $\mu$, and $\sigma$ on each of the three evaluation metrics. \textit{[Screenshot the parameter effects scatter/line plots from the grid search dashboard, showing all three metrics on the vertical axis against each parameter on the horizontal axis.]}}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/heatmap.png}
+\caption{Heatmap of shark-strength (color) as a function of $\mu$ (x-axis) and $p$ (y-axis), with $\sigma = 10$. The transition from low to high shark-strength occurs near $p = 0.3$--$0.4$ and $\mu = 40$--$60$. \textit{[Screenshot the $\mu \times p$ heatmap from the grid search dashboard, filtered to $\sigma = 10$.]}}
+\end{figure}
 
 \subsection{Signed Activations and Projection Steering}
 We combine the results for the trained SAEs and projection steering, as the two are closely related.
