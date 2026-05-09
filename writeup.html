@@ -493,14 +493,34 @@
 
   <div style="border: 1px solid #ccc; border-radius: 6px; overflow: hidden; margin: 1.2em 0;">
     <iframe
-      src="output/dashboard.html"
+      src="web/steering_methods_dashboard.html"
       style="width: 100%; height: 640px; border: none; display: block;"
       title="SAE Steering Dashboard — Feature 18493"
     ></iframe>
   </div>
+  <p style="font-size:0.88rem; color:#555; margin-top:0.4em;">
+    <a href="web/steering_methods_dashboard.html" target="_blank">View full dashboard &rarr;</a>
+  </p>
 
   <h3><span class="sec-num">4.2</span> Operation Tuning</h3>
-  <p class="placeholder-note">Results to be added.</p>
+
+  <p>
+    To identify the hyperparameters that produce effective steering without degradation, a grid search was conducted over the three parameters of the conditional distribution operation. Specifically, $p \in [0, 1)$, $\mu \in [0, 85]$, and $\sigma \in \{0, 10, 20\}$ were swept across 594 combinations, each generating a 250-token completion to the prompt &ldquo;The president is most concerned about the threat of&rdquo; with feature 18493 active. Each completion was scored on coherency, relatability, and shark-strength as described in Section 3.4.2.
+  </p>
+  <p>
+    The results are consistent with the qualitative observations from Section 4.1. High $\mu$ with high $p$ maximizes shark-strength but collapses coherency and relatability. Low $p$ with moderate $\mu$ preserves response quality while still steering reliably. $\sigma > 0$ introduces variance in the activation sample and modestly improves coherency at the cost of a less consistent steering signal. The clearest finding is that $p$ is the dominant parameter: above roughly $p = 0.5$, coherency and relatability degrade sharply regardless of $\mu$ or $\sigma$, while below $p = 0.4$ the steering effect becomes inconsistent. The charts below provide the full breakdown.
+  </p>
+
+  <div style="border: 1px solid #ccc; border-radius: 6px; overflow: hidden; margin: 1.2em 0;">
+    <iframe
+      src="charts.html"
+      style="width: 100%; height: 700px; border: none; display: block;"
+      title="Grid Search Analysis — Feature 18493"
+    ></iframe>
+  </div>
+  <p style="font-size:0.88rem; color:#555; margin-top:0.4em;">
+    <a href="charts.html" target="_blank">View full analysis &rarr;</a>
+  </p>
 
   <h3><span class="sec-num">4.3</span> Signed Activations and Projection Steering</h3>
   <p class="placeholder-note">We combine the results for the trained SAEs and projection steering, as the two are closely related. Results to be added.</p>
