@@ -1,0 +1,8 @@
+Whether it's too cold to go outside depends on a few factors:
+
+*   **Weather conditions:** The temperature at the time of your visit is the most important factor.
+*   **Time of year:** The weather can change quickly, so it's best to be prepared.
+*   **Your physical condition:** If you have any health conditions, it's best to be prepared.
+
+<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>
+<end_of_turn>

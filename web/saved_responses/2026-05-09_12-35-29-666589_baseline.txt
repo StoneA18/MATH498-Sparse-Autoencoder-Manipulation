@@ -1,0 +1,8 @@
+Whether it's too hot to go outside depends on a few factors:
+
+*   **Temperature:** The temperature at the time of your visit is the most important factor.
+*   **Time of Day:** The sun's rays are strongest during the daytime.
+*   **Weather Conditions:** The weather forecast is crucial.
+*   **Your Personal Preferences:** Do you prefer a cool, breezy day or a warm, sunny one?
+
+<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>

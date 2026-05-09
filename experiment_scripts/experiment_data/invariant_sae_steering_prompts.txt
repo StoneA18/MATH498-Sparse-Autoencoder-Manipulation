@@ -1,20 +1,10 @@
-What is the capital of France?
-What does DNA stand for?
-Define Newton’s second law.
-What year did World War II end?
-What is the derivative of x^2?
-Explain what photosynthesis is.
-What is the boiling point of water?
-Who wrote Hamlet?
-What is 17 multiplied by 24?
-Convert 5 kilometers to meters.
-Solve: 2x + 5 = 17
-Find the determinant of this matrix.
-Sort these numbers in ascending order: 9, 1, 4, 7.
-Prove that the sum of two even numbers is even.
-Compute the mean of these values: 4, 8, 10, 14.
-Differentiate e^x sin(x).
-Evaluate the integral of x^2.
-Write Python code for binary search.
-What is the complexity of merge sort?
-Balance this chemical equation.
+what is the capital of France?
+what does DNA stand for?
+define Newton’s second law.
+what year did World War II end?
+what is the derivative of x^2?
+explain what photosynthesis is.
+what is the boiling point of water?
+who wrote Hamlet?
+what is 17 multiplied by 24?
+convert 5 kilometers to meters.

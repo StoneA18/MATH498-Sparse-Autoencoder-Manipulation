@@ -1,0 +1,7 @@
+Whether it's too hot to go outside depends on a few factors, including:
+
+*   **The weather conditions:** Is it a sunny day, a cloudy day, or a nighttime temperature?
+*   **Your personal preferences:** Do you prefer a cool, refreshing breeze or a warm, cozy atmosphere?
+*   **Your activity level:** Are you going for a walk, a hike, or something else?
+
+<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>

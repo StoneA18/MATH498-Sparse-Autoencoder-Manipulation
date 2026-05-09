@@ -1,0 +1,9 @@
+The forecast for a typical day is a mix of factors, including:
+
+*   **Weather:** Sunny, cloudy, rainy, or snowy.
+*   **Time of day:** Early morning, afternoon, or evening.
+*   **Time of year:** Seasonal changes, holidays, and events.
+*   **Local conditions:** Temperature, humidity, and other factors affecting the weather.
+
+<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>
+<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>
