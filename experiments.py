@@ -54,35 +54,35 @@ def dashboard_experiment(
     # Baseline: no intervention
     exp.add_method("baseline", {})
 
-    # Always clamp to 25
-    # exp.add_method("clamp_25", {fid: ClampOp(25)})
+    #Always clamp to 25
+    exp.add_method("clamp_25", {fid: ClampOp(25)})
 
-    # # Always clamp to 50
-    # exp.add_method("clamp_50", {fid: ClampOp(50)})
+    # Always clamp to 50
+    exp.add_method("clamp_50", {fid: ClampOp(50)})
 
-    # # Always clamp to 75
-    # exp.add_method("clamp_75", {fid: ClampOp(75)})
+    # Always clamp to 75
+    exp.add_method("clamp_75", {fid: ClampOp(75)})
 
-    # # With probability 0.4, sample from N(45, 15)
-    # exp.add_method("cond_dist_N(45,15)_p0.4", {fid: CondDistOp(0.4, Dist("normal", 45, 15))})
+    # With probability 0.4, sample from N(45, 10)
+    exp.add_method("cond_dist_N(45,10)_p0.4", {fid: CondDistOp(0.4, Dist("normal", 45, 10))})
 
-    # # Clamp every other token
-    # exp.add_method("every_other_token", {fid: EveryOtherTokenOp(40)})
+    # Clamp every other token
+    exp.add_method("every_other_token", {fid: EveryOtherTokenOp(40)})
 
-    # # Clamp on Fibonacci-indexed tokens (0,1,2,3,5,8,13,…)
-    # exp.add_method("fibonacci_tokens", {fid: FibonacciTokensOp(40)})
+    # Clamp on Fibonacci-indexed tokens (0,1,2,3,5,8,13,…)
+    exp.add_method("fibonacci_tokens", {fid: FibonacciTokensOp(40)})
 
-    # # Clamp every 3rd token
-    # exp.add_method("every_3rd_token", {fid: NthTokenOp(3, 40)})
+    # Clamp every 3rd token
+    exp.add_method("every_3rd_token", {fid: NthTokenOp(3, 40)})
 
-    # # Only intervene when activation exceeds 5 naturally (threshold gate)
-    # exp.add_method("threshold_gate_>5", {fid: ThresholdOp(threshold=5, value=40)})
+    # Only intervene when activation exceeds 5 naturally (threshold gate)
+    exp.add_method("threshold_gate_>5", {fid: ThresholdOp(threshold=5, value=40)})
 
-    # # Scale natural activation by 3×
-    # exp.add_method("scale_3x", {fid: ScaleOp(3.0)})
+    # Scale natural activation by 3×
+    exp.add_method("scale_3x", {fid: ScaleOp(3.0)})
 
-    # # Add 25 to natural activation
-    # exp.add_method("add_25", {fid: AddOp(25.0)})
+    # Add 25 to natural activation
+    exp.add_method("add_25", {fid: AddOp(25.0)})
 
     exp.add_method("bind_random", {fid: ChainOp(8072, 2)})
 
