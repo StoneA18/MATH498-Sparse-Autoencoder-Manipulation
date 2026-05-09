@@ -32,20 +32,19 @@ Built as part of MATH498 - Decoding GPT. Colorado School of Mines, Spring 2026.
 
 ## Repository Contents
 
-* **steering_utils.py** — The core utility file. All classes and functions for loading models and SAEs, applying steering interventions, generating text, and producing HTML feature analysis pages live here.
-* **experiments.py** — A thin CLI dispatcher that imports experiment functions and runs them by name with key-value arguments.
+* **steering_utils.py** — The core utility file. All classes and functions for loading models and SAEs, applying steering interventions, generating text, and more are here.
+* **trainable_sae.py** — Similar to the above, but instead contains the architecture and configuration classes for custom trainable SAEs, used by the playground server and training scripts.
+* **experiments.py** — A program used for quickly running experiments, it parses command line arguments to the experiment scripts themselves.
 * **experiment_scripts/** — Individual experiment modules; each defines a function that is registered in `experiments.py`.
-* **experiment_scripts/experiment_data/** — Corpus text files and output archives produced by experiments.
+* **experiment_scripts/experiment_data/** — Training text files and output archives produced by experiments.
 * **scripts/** — Utility scripts for data collection, SAE training, and keeping the web dashboards in sync with experiment output.
 * **web/** — Browser-based dashboards and the live SAE playground server.
-* **output/** — Generated outputs from running experiments, including `log.txt`, an append-only JSON log of every generation.
-* **samples/** — Sample prompt text files for use with experiments.
+* **samples/** — Sample prompt text files for querying or training models.
 * **notebooks/** — Jupyter notebooks for interactive exploration.
-* **trainable_sae.py** — Architecture and configuration classes for custom trainable SAEs, used by the playground server and training scripts.
-* **saved_saes/** — Trained SAE checkpoints produced by `scripts/train_sae.py`.
-* **custom_saes/** — Additional custom SAE model files.
 * **pyproject.toml**, **uv.lock** — Package manager files; contain all project dependencies.
-* **depracated/** — Old scripts and notebooks kept as a development reference; nothing here needs to be examined.
+* **writeup.html** - Again, this is the crucial site to take a look at to really understand this project and see the results.
+
+**Note:** There may be other directories in your local repository, such as `outputs/` which logs model responses, as well as your trained or downloaded SAEs, that are not present in this public repository.
 
 ---
 
@@ -58,17 +57,17 @@ Install dependencies:
 uv sync
 ```
 
-Run any experiment:
+Then, run any experiment (Read the documentation for the experiment first) with:
 ```
 uv run experiments.py <experiment_name> [key value ...]
 ```
 
-Start the web playground server:
+Start the web playground server (Again, read the documentation first) with:
 ```
 uv run python web/web_sae_playground.py --host 127.0.0.1 --port 8000
 ```
 
-If you are experimenting with `steering_utils` directly, it is recommended you do so in a Jupyter notebook or a standalone script run with `uv run`.
+If you are experimenting with `steering_utils` directly, it is recommended you do so in a standalone script run with `uv run`.
 
 ---
 
@@ -191,7 +190,7 @@ Runs the `SteeringExperiment` pipeline: defines multiple steering methods for a 
 uv run experiments.py dashboard_experiment
 uv run experiments.py dashboard_experiment prompt "The ocean is" n_tokens 60 feature_id 18493
 ```
-The dashboard lets you select between methods with a dropdown. Each token is colored gray (feature inactive), green (active, no intervention), or orange (intervention fired). Hovering shows a tooltip with natural and post-intervention activation values; a ⚡ marks where the op changed the value. A chart below shows activation over the full sequence, solid for post-op and dashed for natural. The output is also archived timestamped to `experiment_scripts/experiment_data/dashboard_experiment/`.
+The dashboard lets you select between methods with a dropdown. Each token is colored gray (feature inactive), green (active, no intervention), or orange (intervention fired). Hovering shows a tooltip with natural and post-intervention activation values; a bolt marks where the op changed the value. A chart below shows activation over the full sequence, solid for post-op and dashed for natural. The output is also archived timestamped to `experiment_scripts/experiment_data/dashboard_experiment/`.
 
 Parameters: `prompt` (default `"I like sharks"`), `n_tokens` (default `100`), `feature_id` (default `18493`), `output` (default `"output/dashboard.html"`).
 
@@ -255,7 +254,7 @@ The SAE playground is a live browser interface for experimenting with **custom t
 ```
 uv run python web/web_sae_playground.py --host 127.0.0.1 --port 8000
 ```
-An optional `--device` flag (e.g. `--device cuda:2`) controls which GPU is used. The server discovers all SAE checkpoints in `saved_saes/` automatically and lists them in a dropdown in the browser.
+An optional `--device` flag (e.g. `--device cuda:2`) controls which GPU/CPU is used. The server discovers all SAE checkpoints in `saved_saes/` automatically and lists them in a dropdown in the browser.
 
 **Using the playground:** Select an SAE checkpoint and a steering mode. The primary mode is **notebook delta pair**: it computes a concept direction vector from two contrasting corpora (e.g. hot words vs. cold words) via either addition or projection. For a given prompt, it generates three outputs side by side — baseline (no intervention), positively steered (concept direction added), negatively steered (concept direction subtracted). Each run is logged to `web/log.csv`.
 
