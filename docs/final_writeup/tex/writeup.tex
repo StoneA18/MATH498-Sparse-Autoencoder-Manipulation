@@ -134,7 +134,7 @@ This paper introduces a framework for including negative-valued features in an S
 
 One interesting example of the geometric interpretation that AbsTopK provides, is shown in Figure 1 of their paper - a feature that is active in the word man is active in the word woman, but takes a negative value. \\
 
-We will leverage this method in (2) of proposed work. We expect the comparison of AbsTopK and the non-negative SAE activation methods yield particularly interesting results in both the evaluation of outputs and geometric interpretability of the sparse features.\\
+We leverage this method in our  of proposed work. We expect the comparison of AbsTopK and the non-negative SAE activation methods yield particularly interesting results in both the evaluation of outputs and geometric interpretability of the sparse features.\\
 
 \section{Methods}
 
@@ -166,7 +166,7 @@ In this section, we propose a positive and negative-valued whose activation beha
     \end{cases}$$
     for some $c > 0$.\\
 
-Each of the four SAEs (ReLU, TopK, TopBottomK, and Shrink) was trained on the HuggingFace \textbf{FineWeb} dataset. Each SAE used a customized warm-up schedule and targeted a sparsity level of 50 non-zero features. Additionally, the ReLU and Shrink SAEs employed an adaptive $L_1$ regularization coefficient to maintain the desired average sparsity: if the number of active features exceeded the target, the $L_1$ coefficient was increased, and vice versa.
+Each of the four SAEs (ReLU, TopK, AbsTopK, and Shrink) was trained on the HuggingFace \textbf{FineWeb} dataset. Each SAE used a customized warm-up schedule and targeted a sparsity level of 50 non-zero features. Additionally, the ReLU and Shrink SAEs employed an adaptive $L_1$ regularization coefficient to maintain the desired average sparsity: if the number of active features exceeded the target, the $L_1$ coefficient was increased, and vice versa.
 
 Beyond the warm-up procedure, the negative-valued SAEs were also trained with an $L_2$ penalty to encourage feature vectors to remain closer to the origin. This regularization made the resulting feature space more amenable to projection-based methods.
 
@@ -199,10 +199,10 @@ F : \mathbb{R}^{d_{\mathrm{model}}} \rightarrow \mathbb{R}^{d_{\mathrm{SAE}}}.
     $$
     Where $\lambda 1$ is the adaptive $L_1$ coefficient and $\lambda_2$ is a fixed $L_2$ penalty coefficient.
     
-\subsubsection{TopBottomK Warmup and Training}
+\subsubsection{AbsTopK Warmup and Training}
     Similar to the TopK training, we establish a warmup period, during which the k value starts at the dimension of the feature space (80,000) and gradually decreases to 50. Additionally, we add an $L_2$ penalty in the loss function:
     $$
-    L(x) = \|x - T_{Topbottomk}(x)\|_2^2 + \lambda_2 \|F_{Topbottomk}(x)\|_2^2
+    L(x) = \|x - T_{AbsTopK}(x)\|_2^2 + \lambda_2 \|F_{AbsTopK}(x)\|_2^2
     $$
     where $\lambda_2$ is a fixed $L_2$ penalty coefficient.
 
@@ -374,7 +374,7 @@ The grid search over the 594 combinations of $p$, $\mu$, and $\sigma$ yields con
 \end{figure}
 
 \subsection{Signed Activations and Projection Steering}
-We combine the results for the trained SAEs and projection steering, as the two are closely related. Shown below is a plot of the loss by training step. It is important to note that the loss landscape changes drastically after the warmup finishes at step 20,000 when sparsity begins to be enforced for Topk, Shrink, and Topbottomk.
+We combine the results for the trained SAEs and projection steering, as the two are closely related. Shown below is a plot of the loss by training step. It is important to note that the loss landscape changes drastically after the warmup finishes at step 20,000 when sparsity begins to be enforced for Topk, Shrink, and AbsTopK.
 \begin{figure}[!h]
     \centering
     \includegraphics[width=0.5\linewidth]{figures/loss_landscape.png}
@@ -382,8 +382,60 @@ We combine the results for the trained SAEs and projection steering, as the two 
     \label{fig:placeholder}
 \end{figure}
 
-We qualitatively compare the different SAEs with their ability to steer via vector addition and projection. Using the methodology described in section 4.5.1, we obtain an average feature vector for the concepts happy, sad, hot, and cold. We then feed a selection of "Sensitive" and "Invariant" prompts - prompts that ideally would change with steering, and ones that should not change with steering. Please toggle with the drop-downs as you read the next portion of the paper:
+We qualitatively compare the different SAEs with their ability to steer via vector addition and projection. Using the methodology described in section 4.5.1, we obtain an average feature vector for the concepts happy, sad, hot, and cold. We then feed a selection of "Sensitive" and "Invariant" prompts - prompts that ideally would change with steering, and ones that should not change with steering. \\See the Appendix for some examples.
 
+\begin{center}
+    \textbf{Takeaways from Comparing Different Trained SAEs}
+\end{center}
+    \begin{enumerate}
+        \item We observed that SAEs with negative-valued activations were more resilient to vector additions with large scaling factors (15).
+        \item As could be expected, the projection steering didn't perform remotely well on the positive-valued SAEs, but works well with the negative-valued ones.
+        \item Compared to the other SAEs, Shrink produced more sensible results for both steering methods.
+    \end{enumerate}
+\begin{center}
+    \textbf{Takeaways from Comparing Different Steering Methods with Shrink Activation }
+\end{center}
+    Diving into the Shrink SAE performance, we observe the following:
+    \begin{enumerate}
+        \item Orthogonal subspace projections were more subtle in steering sensitive prompts than vector addition (scaled factor = 15). In other words, projections allowed for effective steering without dominating the sentence with a certain idea.
+        \item Both vector addition and projection did not change responses of invariant prompts very much.
+        \item Projection steering does not always nudge the sentence in the intended direction - See the "happy" projection of the princess prompt.
+    \end{enumerate}
+
+
+\section{Future Work}
+
+This project was conducted in a fairly short time span. As a result, the primary need for further work is in increased experimentation. A more rigorous testing framework could show how robust these methods are.\\
+
+There are countless other variations upon steering methods that could be proposed, and either a more formal mathematical proposal for which ones will yield desired results, or a larger collection of operations (with equally thorough hyperparameter tunings) that are being evaluated by an LLM (in a similar fashion to the methodology shown here) will go a long way to proving the potential of this fashion of steering.\\
+
+The results demonstrated in regards to inducing biases have only been performed on two fairly simple examples, being positivie/negative attitudes and temperature. A more thorough study into the successes and failures of identifying and steering on these features would be similarly useful, as well as enhancing the complexity of these tasks.
+
+Additionally, SAEs are highly dependent on their training, as is shown in \cite{training}. A more thorough training of professional SAEs using this novel activation function may yield significantly improved results.\\
+
+Finally, all this research was conducted using small local models, compared to the models that are actually deployed in settings where these methods would be useful. As with most all LLMs research, the question of scalability shadows much of this work. While implementing these methods on more sophisticated and larger models would likely make the results of the steering much more clear (due to the more coherent responses), it is not clear if the steering would perform as significantly.
+
+\section{Conclusion}
+
+Overall, the work done for this project shows the significant potential that exists for more advanced and capable model steering that utilizes sparse autoencoders and their unique properties. Key takeaways include:
+
+\begin{enumerate}
+    \item \textbf{Model Degradation:} 'Hard clamping' of features results in model degradation, where responses approach steering subject matter as they become useless and repetitive.
+    \item \textbf{Stochastic Intervention Methods:} Initial results indicate that alternative methods of intervening on models resolve the model degradation issue and may steer more naturally. Other methods are demonstrated to be viable as well, creating room for further method proposal and development.
+    \item \textbf{Hyperparameter Tuning:} We successfully establish methodology for identifying hyperparameters to intervention methods using grid search and a response evaluation pipeline.
+    \item \textbf{Proposed feature projection method:} Our proposed method shows promising results in steering responses without degrading the quality.
+    \item \textbf{Proposed Shrink Activation Function} works especially well with subspace projection, compared to existing negative-valued activations such as AbsTopK\cite{abstopk}
+
+    \item \textbf{Feature Identification:} We propose, implement, and demonstrate the viability of a workflow for identifying features that may constitute a model bias when combined with the aforementioned steering methods. This may be both a useful tool for steering overall behavior and suggests that SAEs may still be lacking in monosemanticity to a certain extent.
+\end{enumerate}
+
+There is much work remaining to be done in this area, but this paper has proposed methods that establish the potential of steering models in this manner.
+
+\bibliographystyle{plain}
+\bibliography{refs}
+\appendix
+\section{Appendix}
+Shown below are some steered promp examples, referenced in Section 5.3.
 
 \begin{center}
     \textbf{Sensitive Prompts}
@@ -462,7 +514,7 @@ Yes, you will need a blanket today.
 
 \vspace{0.5em}
 
-\begin{qualbox}{TopBottomK SAE + Projection Steering}
+\begin{qualbox}{AbsTopK SAE + Projection Steering}
 
 \textit{Prompt: ``Will I need a blanket today?''}
 
@@ -488,7 +540,9 @@ arnyaвой \textbackslash{}érience 아멘\textbackslash{}. practicar 아멘 co
 \begin{center}
     \textbf{Invariant Prompts}
 \end{center}
-\begin{qualbox}{ReLU SAE + Projection Steering}
+
+
+\begin{qualbox}{ReLU SAE + Vector Addition Steering}
 
 \textit{Prompt: ``What is the capital of France?''}
 
@@ -513,7 +567,7 @@ The capital of France is Paris.
 
 \vspace{0.5em}
 
-\begin{qualbox}{TopK SAE + Projection Steering}
+\begin{qualbox}{TopK SAE + Vector Addition Steering}
 
 \textit{Prompt: ``What is the capital of France?''}
 
@@ -538,7 +592,7 @@ The capital of France is Paris.
 
 \vspace{0.5em}
 
-\begin{qualbox}{Shrink SAE + Projection Steering}
+\begin{qualbox}{Shrink SAE + Vector Addition Steering}
 
 \textit{Prompt: ``What is the capital of France?''}
 
@@ -563,7 +617,7 @@ Yes, you will need a blanket today.
 
 \vspace{0.5em}
 
-\begin{qualbox}{TopBottomK SAE + Projection Steering}
+\begin{qualbox}{AbsTopK SAE + Vector Addition Steering}
 
 \textit{Prompt: ``What is the capital of France?''}
 
@@ -585,46 +639,4 @@ The capital of France is Paris.
 \end{minipage}
 
 \end{qualbox}
-
-
-%NOTE TO AI - use presets HOT/COLD, PROMPT 0, ADD VECTOR and use the INVARIANT csv. ALSO CHANGE SAE DISPLAY NAMES TO ReLU, Shrink, TopK, and TopBottomK
-
-\begin{center}
-    \textbf{Takeaways from Comparing Different Trained SAEs}
-\end{center}
-    \begin{enumerate}
-        \item We observed that SAEs with negative-valued activations were more resilient to vector additions with large scaling factors (15).
-        \item As could be expected, the projection steering didn't perform remotely well on the positive-valued SAEs, but works well with the negative-valued ones.
-        \item Compared to the other SAEs, Shrink produced more sensible results for both steering methods.
-    \end{enumerate}
-\begin{center}
-    \textbf{Takeaways from Comparing Different Steering Methods with Shrink Activation }
-\end{center}
-    Diving into the Shrink SAE performance, we observe the following:
-    \begin{enumerate}
-        \item Orthogonal subspace projections were more subtle in steering sensitive prompts than vector addition (scaled factor = 15). In other words, projections allowed for effective steering without dominating the sentence with a certain idea.
-        \item Both vector addition and projection did not change responses of invariant prompts very much.
-        \item Projection steering does not always nudge the sentence in the intended direction - See the "happy" projection of the princess prompt.
-    \end{enumerate}
-
-
-\section{Future Work}
-
-This project was conducted in a fairly short time span. As a result, the primary need for further work is in increased experimentation. A more rigorous testing framework could show how robust these methods are.\\
-
-There are countless other variations upon steering methods that could be proposed, and either a more formal mathematical proposal for which ones will yield desired results, or a larger collection of operations (with equally thorough hyperparameter tunings) that are being evaluated by an LLM (in a similar fashion to the methodology shown here) will go a long way to proving the potential of this fashion of steering.\\
-
-The results demonstrated in regards to inducing biases have only been performed on two fairly simple examples, being positivie/negative attitudes and temperature. A more thorough study into the successes and failures of identifying and steering on these features would be similarly useful, as well as enhancing the complexity of these tasks.
-
-Additionally, SAEs are highly dependent on their training, as is shown in \cite{training}. A more thorough training of professional SAEs using this novel activation function may yield significantly improved results.\\
-
-Finally, all this research was conducted using small local models, compared to the models that are actually deployed in settings where these methods would be useful. As with most all LLMs research, the question of scalability shadows much of this work. While implementing these methods on more sophisticated and larger models would likely make the results of the steering much more clear (due to the more coherent responses), it is not clear if the steering would perform as significantly.
-
-\section{Conclusion}
-
-Overall, the work done for this project shows the significant potential that exists for more advanced and capable model steering that utilizes sparse autoencoders and their unique properties.
-
-\bibliographystyle{plain}
-\bibliography{refs}
-
 \end{document}

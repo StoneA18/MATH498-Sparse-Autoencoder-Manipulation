@@ -640,7 +640,18 @@
   ═════════════════════════════════════════════ -->
   <h2><span class="sec-num">6</span> Conclusion</h2>
   <p>
-    Overall, the work done for this project shows the significant potential that exists for more advanced and capable model steering that utilizes sparse autoencoders and their unique properties.
+    Overall, the work done for this project shows the significant potential that exists for more advanced and capable model steering that utilizes sparse autoencoders and their unique properties. Key takeaways include:
+  </p>
+  <ol>
+    <li><strong>Model Degradation.</strong> &lsquo;Hard clamping&rsquo; of features results in model degradation, where responses approach steering subject matter as they become useless and repetitive.</li>
+    <li><strong>Stochastic Intervention Methods.</strong> Initial results indicate that alternative methods of intervening on models resolve the model degradation issue and may steer more naturally. Other methods are demonstrated to be viable as well, creating room for further method proposal and development.</li>
+    <li><strong>Hyperparameter Tuning.</strong> We successfully establish methodology for identifying hyperparameters to intervention methods using grid search and a response evaluation pipeline.</li>
+    <li><strong>Proposed Feature Projection Method.</strong> Our proposed method shows promising results in steering responses without degrading the quality.</li>
+    <li><strong>Proposed Shrink Activation Function</strong> works especially well with subspace projection, compared to existing negative-valued activations such as AbsTopK <cite>[4]</cite>.</li>
+    <li><strong>Feature Identification.</strong> We propose, implement, and demonstrate the viability of a workflow for identifying features that may constitute a model bias when combined with the aforementioned steering methods. This may be both a useful tool for steering overall behavior and suggests that SAEs may still be lacking in monosemanticity to a certain extent.</li>
+  </ol>
+  <p>
+    There is much work remaining to be done in this area, but this paper has proposed methods that establish the potential of steering models in this manner.
   </p>
 
   <!-- ════════════════════════════════════════════
