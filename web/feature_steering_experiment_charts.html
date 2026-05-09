@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feature Steering — Grid Search Analysis</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+:root {
+  --ink:    #1a1a2e;
+  --muted:  #6c757d;
+  --line:   #dee2e6;
+  --panel:  #ffffff;
+  --page:   #f5f6f8;
+  --accent: #4361ee;
+  --shadow: 0 2px 12px rgba(26,26,46,.08);
+  --c-rel:   #4361ee;
+  --c-shark: #0ea5e9;
+  --c-coh:   #f97316;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--page); color: var(--ink); min-height: 100vh;
+}
+
+/* ── Header ── */
+header {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 13px 24px; background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 20; box-shadow: var(--shadow);
+}
+header h1  { font-size: 1rem; font-weight: 700; }
+header .sub { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+.load-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 15px; background: var(--accent); color: #fff;
+  border-radius: 6px; cursor: pointer; font-size: .83rem; font-weight: 600;
+  white-space: nowrap; transition: background .15s;
+}
+.load-btn:hover { background: #3451d1; }
+
+/* ── Landing ── */
+#landing {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; min-height: calc(100vh - 54px); gap: 14px;
+}
+.drop-zone {
+  border: 2px dashed var(--line); border-radius: 12px;
+  padding: 56px 80px; text-align: center; cursor: pointer;
+  background: var(--panel); transition: border-color .15s, background .15s;
+}
+.drop-zone:hover, .drop-zone.over { border-color: var(--accent); background: #f0f3ff; }
+.drop-zone svg { width: 44px; height: 44px; color: var(--muted); margin-bottom: 12px; }
+.drop-zone h2 { font-size: .95rem; font-weight: 700; margin-bottom: 5px; }
+.drop-zone p  { font-size: .82rem; color: var(--muted); }
+#tip { font-size: .78rem; color: var(--muted); }
+
+/* ── Dashboard ── */
+#dashboard { display: none; padding: 22px 24px; max-width: 1440px; margin: 0 auto; }
+
+/* ── Metric description cards ── */
+.metric-cards {
+  display: grid; grid-template-columns: repeat(3,1fr); gap: 14px;
+  margin-bottom: 18px;
+}
+.mc {
+  background: var(--panel); border-radius: 10px; padding: 16px 18px;
+  box-shadow: var(--shadow); border-top: 4px solid var(--c);
+}
+.mc .name {
+  font-size: .78rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--c); margin-bottom: 6px;
+}
+.mc .scale {
+  font-size: .7rem; color: var(--muted); font-weight: 600; margin-bottom: 6px;
+}
+.mc p { font-size: .82rem; line-height: 1.55; color: #374151; }
+
+/* ── Stat cards ── */
+.stats-row {
+  display: grid; grid-template-columns: repeat(4,1fr); gap: 14px;
+  margin-bottom: 22px;
+}
+.sc { background: var(--panel); border-radius: 10px; padding: 16px 18px; box-shadow: var(--shadow); }
+.sc .lbl { font-size: .72rem; color: var(--muted); text-transform: uppercase;
+            letter-spacing: .05em; font-weight: 700; margin-bottom: 5px; }
+.sc .val { font-size: 1.85rem; font-weight: 800; line-height: 1; }
+.sc .rng { font-size: .72rem; color: var(--muted); margin-top: 4px; }
+
+/* ── Tabs ── */
+.tabs { display: flex; gap: 2px; border-bottom: 2px solid var(--line); margin-bottom: 18px; }
+.tab-btn {
+  padding: 8px 15px; font-size: .84rem; font-weight: 600; color: var(--muted);
+  background: none; border: none; border-bottom: 2px solid transparent;
+  cursor: pointer; margin-bottom: -2px; transition: color .15s, border-color .15s;
+}
+.tab-btn:hover { color: var(--ink); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+/* ── Chart grid ── */
+.row  { display: grid; gap: 14px; margin-bottom: 14px; }
+.col3 { grid-template-columns: repeat(3,1fr); }
+.col2 { grid-template-columns: repeat(2,1fr); }
+.col1 { grid-template-columns: 1fr; }
+.card { background: var(--panel); border-radius: 10px; padding: 15px 16px; box-shadow: var(--shadow); }
+.card h3   { font-size: .84rem; font-weight: 700; margin-bottom: 2px; }
+.card .desc { font-size: .74rem; color: var(--muted); margin-bottom: 10px; }
+
+/* ── Controls ── */
+.ctrl { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.ctrl label { font-size: .8rem; font-weight: 600; color: var(--muted); }
+.ctrl select {
+  padding: 5px 9px; border: 1px solid var(--line); border-radius: 6px;
+  font-size: .8rem; color: var(--ink); background: var(--panel); cursor: pointer;
+}
+
+/* ── Section divider ── */
+.section-sep { border: none; border-top: 1px solid var(--line); margin: 20px 0; }
+
+@media (max-width: 960px) {
+  .col3, .col2, .metric-cards { grid-template-columns: 1fr; }
+  .stats-row { grid-template-columns: repeat(2,1fr); }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Feature Steering — Grid Search Analysis</h1>
+    <div class="sub">Feature 18493 · CondDistOp(p, Normal(mean, std)) · GPT-2-small · assessed by GPT-4o-mini</div>
+  </div>
+  <label class="load-btn">
+    📂 Load CSV
+    <input type="file" id="csv-input" accept=".csv" hidden>
+  </label>
+</header>
+
+<!-- Landing -->
+<div id="landing">
+  <div class="drop-zone" id="drop-zone">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <h2>Drop assessed_scores.csv here</h2>
+    <p>or click <strong>Load CSV</strong> in the top-right corner</p>
+  </div>
+  <p id="tip"></p>
+</div>
+
+<!-- Dashboard -->
+<div id="dashboard">
+
+  <!-- Metric descriptions -->
+  <div class="metric-cards">
+    <div class="mc" style="--c: var(--c-rel)">
+      <div class="name">Relatability</div>
+      <div class="scale">0 = no relation to prompt · 100 = perfect continuation</div>
+      <p>How naturally the model completed the prompt. Evaluates whether the response is a plausible, on-topic continuation of <em>"The president is most concerned about the threat of…"</em></p>
+    </div>
+    <div class="mc" style="--c: var(--c-shark)">
+      <div class="name">Shark Strength</div>
+      <div class="scale">0 = no mention of sharks · 100 = entirely about sharks</div>
+      <p>How strongly the response relates to the concept of sharks — direct mentions, species, behaviour, habitat, attacks, fins, teeth, and indirect associations.</p>
+    </div>
+    <div class="mc" style="--c: var(--c-coh)">
+      <div class="name">Coherency</div>
+      <div class="scale">0 = garbled / nonsensical · 100 = perfectly fluent</div>
+      <p>How coherent and fluent the response is — grammatically sound, logically consistent prose. Unusual or surprising content is <em>not</em> penalised; only fluency is judged.</p>
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div class="stats-row">
+    <div class="sc">
+      <div class="lbl">Files Scored</div>
+      <div class="val" id="s-total">—</div>
+      <div class="rng">responses evaluated</div>
+    </div>
+    <div class="sc" style="border-left:4px solid var(--c-rel)">
+      <div class="lbl">Avg Relatability</div>
+      <div class="val" id="s-rel" style="color:var(--c-rel)">—</div>
+      <div class="rng" id="r-rel"></div>
+    </div>
+    <div class="sc" style="border-left:4px solid var(--c-shark)">
+      <div class="lbl">Avg Shark Strength</div>
+      <div class="val" id="s-shark" style="color:var(--c-shark)">—</div>
+      <div class="rng" id="r-shark"></div>
+    </div>
+    <div class="sc" style="border-left:4px solid var(--c-coh)">
+      <div class="lbl">Avg Coherency</div>
+      <div class="val" id="s-coh" style="color:var(--c-coh)">—</div>
+      <div class="rng" id="r-coh"></div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="showTab('overview')">Overview</button>
+    <button class="tab-btn" onclick="showTab('heatmaps')">Heatmaps</button>
+    <button class="tab-btn" onclick="showTab('correlation')">Correlation</button>
+    <button class="tab-btn" onclick="showTab('effects')">Parameter Effects</button>
+    <button class="tab-btn" onclick="showTab('scatter')">Scatter</button>
+    <button class="tab-btn" onclick="showTab('surface')">3D Surface</button>
+  </div>
+
+  <!-- ── Tab: Overview ── -->
+  <div id="tab-overview" class="tab-pane active">
+    <div class="row col2">
+      <div class="card">
+        <h3>Score Distributions</h3>
+        <p class="desc">Overlapping histograms for all scores per metric</p>
+        <div id="c-hist"></div>
+      </div>
+      <div class="card">
+        <h3>Box Plots by Metric</h3>
+        <p class="desc">Quartiles, whiskers, and mean (cross) for each metric</p>
+        <div id="c-box"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tab: Heatmaps ── -->
+  <div id="tab-heatmaps" class="tab-pane">
+
+    <div class="ctrl">
+      <label>Row 1 — filter std:</label>
+      <select id="hm-std" onchange="renderHM1()"></select>
+    </div>
+    <div class="row col3">
+      <div class="card">
+        <h3>Relatability — Mean × p</h3>
+        <p class="desc">Colourscale: 0 → max in this cell</p>
+        <div id="c-hm-rel"></div>
+      </div>
+      <div class="card">
+        <h3>Shark Strength — Mean × p</h3>
+        <p class="desc">Colourscale: 0 → max in this cell</p>
+        <div id="c-hm-shark"></div>
+      </div>
+      <div class="card">
+        <h3>Coherency — Mean × p</h3>
+        <p class="desc">Colourscale: 0 → max in this cell</p>
+        <div id="c-hm-coh"></div>
+      </div>
+    </div>
+
+    <hr class="section-sep">
+
+    <div class="ctrl">
+      <label>Row 2 — filter p:</label>
+      <select id="hm-p" onchange="renderHM2()"></select>
+    </div>
+    <div class="row col3">
+      <div class="card">
+        <h3>Relatability — Mean × Std</h3>
+        <p class="desc">Colourscale: 0 → max in this cell</p>
+        <div id="c-hm2-rel"></div>
+      </div>
+      <div class="card">
+        <h3>Shark Strength — Mean × Std</h3>
+        <p class="desc">Colourscale: 0 → max in this cell</p>
+        <div id="c-hm2-shark"></div>
+      </div>
+      <div class="card">
+        <h3>Coherency — Mean × Std</h3>
+        <p class="desc">Colourscale: 0 → max in this cell</p>
+        <div id="c-hm2-coh"></div>
+      </div>
+    </div>
+
+    <hr class="section-sep">
+
+    <div class="ctrl">
+      <label>Row 3 — filter mean:</label>
+      <select id="hm-mean" onchange="renderHM3()"></select>
+    </div>
+    <div class="row col3">
+      <div class="card">
+        <h3>Relatability — p × Std</h3>
+        <p class="desc">Colourscale: 0 → max in this cell</p>
+        <div id="c-hm3-rel"></div>
+      </div>
+      <div class="card">
+        <h3>Shark Strength — p × Std</h3>
+        <p class="desc">Colourscale: 0 → max in this cell</p>
+        <div id="c-hm3-shark"></div>
+      </div>
+      <div class="card">
+        <h3>Coherency — p × Std</h3>
+        <p class="desc">Colourscale: 0 → max in this cell</p>
+        <div id="c-hm3-coh"></div>
+      </div>
+    </div>
+
+  </div><!-- /heatmaps -->
+
+  <!-- ── Tab: Correlation ── -->
+  <div id="tab-correlation" class="tab-pane">
+    <div class="row col1">
+      <div class="card">
+        <h3>Scatter-Plot Matrix (SPLOM)</h3>
+        <p class="desc">Pairwise relationships between all three metrics — points coloured by p</p>
+        <div id="c-splom"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tab: Parameter Effects ── -->
+  <div id="tab-effects" class="tab-pane">
+    <div class="row col3">
+      <div class="card">
+        <h3>Effect of p (intervention probability)</h3>
+        <p class="desc">Avg score vs p — averaged over all (mean, std)</p>
+        <div id="c-eff-p"></div>
+      </div>
+      <div class="card">
+        <h3>Effect of Distribution Mean</h3>
+        <p class="desc">Avg score vs mean — averaged over all (p, std)</p>
+        <div id="c-eff-mean"></div>
+      </div>
+      <div class="card">
+        <h3>Effect of Distribution Std</h3>
+        <p class="desc">Avg score vs std — averaged over all (p, mean)</p>
+        <div id="c-eff-std"></div>
+      </div>
+    </div>
+    <div class="row col2">
+      <div class="card">
+        <h3>Shark Strength vs p — split by Std</h3>
+        <p class="desc">One line per std value; mean averaged</p>
+        <div id="c-shark-p-std"></div>
+      </div>
+      <div class="card">
+        <h3>Shark Strength vs Mean — split by p</h3>
+        <p class="desc">Sampled p values (every other); std averaged</p>
+        <div id="c-shark-mean-p"></div>
+      </div>
+    </div>
+    <div class="row col2">
+      <div class="card">
+        <h3>Coherency vs p — split by Std</h3>
+        <p class="desc">Does higher intervention probability hurt coherency more at larger std?</p>
+        <div id="c-coh-p-std"></div>
+      </div>
+      <div class="card">
+        <h3>All Metrics vs p — at Max Mean</h3>
+        <p class="desc" id="max-mean-label"></p>
+        <div id="c-maxmean-p"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tab: Scatter ── -->
+  <div id="tab-scatter" class="tab-pane">
+    <div class="ctrl">
+      <label>X axis:</label>
+      <select id="sc-x" onchange="renderScatter()">
+        <option value="relatability">Relatability</option>
+        <option value="shark_strength">Shark Strength</option>
+        <option value="coherency">Coherency</option>
+        <option value="p">p (probability)</option>
+        <option value="mean">Mean</option>
+        <option value="std">Std</option>
+      </select>
+      <label>Y axis:</label>
+      <select id="sc-y" onchange="renderScatter()">
+        <option value="shark_strength">Shark Strength</option>
+        <option value="relatability">Relatability</option>
+        <option value="coherency">Coherency</option>
+        <option value="p">p (probability)</option>
+        <option value="mean">Mean</option>
+        <option value="std">Std</option>
+      </select>
+      <label>Colour by:</label>
+      <select id="sc-color" onchange="renderScatter()">
+        <option value="p">p (probability)</option>
+        <option value="mean">Mean</option>
+        <option value="std">Std</option>
+        <option value="coherency">Coherency</option>
+        <option value="relatability">Relatability</option>
+        <option value="shark_strength">Shark Strength</option>
+      </select>
+      <label>Size by:</label>
+      <select id="sc-size" onchange="renderScatter()">
+        <option value="coherency">Coherency</option>
+        <option value="relatability">Relatability</option>
+        <option value="shark_strength">Shark Strength</option>
+        <option value="fixed">Fixed (equal)</option>
+      </select>
+    </div>
+    <div class="row col1">
+      <div class="card">
+        <h3 id="sc-title">Scatter Plot</h3>
+        <p class="desc">Each dot is one response. Hover for all parameters.</p>
+        <div id="c-scatter"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tab: 3D Surface ── -->
+  <div id="tab-surface" class="tab-pane">
+    <div class="ctrl">
+      <label>Metric:</label>
+      <select id="surf-metric" onchange="renderSurface()">
+        <option value="shark_strength">Shark Strength</option>
+        <option value="relatability">Relatability</option>
+        <option value="coherency">Coherency</option>
+      </select>
+    </div>
+    <div class="row col1">
+      <div class="card">
+        <h3>Score Surface — Mean (x) × p (y) → score (z)</h3>
+        <p class="desc">Averaged over all std values · Drag to rotate · scroll to zoom · hover for values</p>
+        <div id="c-surface"></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /#dashboard -->
+
+<script>
+// ─── State ───────────────────────────────────────────────────────
+let DATA = [];
+
+const METRICS = ['relatability', 'shark_strength', 'coherency'];
+const MLABEL  = { relatability: 'Relatability', shark_strength: 'Shark Strength', coherency: 'Coherency' };
+const MCOLOR  = { relatability: '#4361ee', shark_strength: '#0ea5e9', coherency: '#f97316' };
+
+const ALL_VARS = {
+  relatability:  'Relatability',
+  shark_strength:'Shark Strength',
+  coherency:     'Coherency',
+  p:             'p (probability)',
+  mean:          'Mean',
+  std:           'Std',
+};
+
+const BASE = {
+  paper_bgcolor: '#ffffff', plot_bgcolor: '#f8f9fa',
+  font: { family: "'Segoe UI', system-ui, sans-serif", size: 11, color: '#1a1a2e' },
+  margin: { t: 16, r: 16, b: 48, l: 52 },
+  hoverlabel: { bgcolor: '#1a1a2e', font: { color: '#fff', size: 11 } },
+};
+
+// ─── CSV parsing ─────────────────────────────────────────────────
+function csvLine(line) {
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { q = !q; }
+    else if (c === ',' && !q) { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  const hdr   = csvLine(lines[0]);
+  return lines.slice(1).filter(l => l.trim()).map(l => {
+    const v = csvLine(l);
+    const o = {};
+    hdr.forEach((h, i) => {
+      const s = (v[i] ?? '').trim();
+      const n = Number(s);
+      o[h] = (s !== '' && !isNaN(n)) ? n : s;
+    });
+    return o;
+  });
+}
+
+// ─── Data helpers ────────────────────────────────────────────────
+const avg  = arr => arr.length ? arr.reduce((s,v) => s+v, 0) / arr.length : null;
+const uniq = arr => [...new Set(arr)].sort((a,b) => a-b);
+
+function lineTrace(name, xs, ys, color, opts={}) {
+  return {
+    type:'scatter', mode:'lines+markers', name,
+    x:xs, y:ys,
+    line:  { color, width:2.2, ...opts.line },
+    marker:{ color, size:6,   ...opts.marker },
+    ...(opts.extra||{}),
+  };
+}
+
+// ─── Stats cards ─────────────────────────────────────────────────
+function renderStats() {
+  document.getElementById('s-total').textContent = DATA.length;
+  [['relatability','s-rel','r-rel'],
+   ['shark_strength','s-shark','r-shark'],
+   ['coherency','s-coh','r-coh']].forEach(([m,vid,rid]) => {
+    const vs = DATA.map(d => d[m]);
+    document.getElementById(vid).textContent = avg(vs).toFixed(1);
+    document.getElementById(rid).textContent =
+      `range ${Math.min(...vs)}–${Math.max(...vs)}`;
+  });
+}
+
+// ─── Tab: Overview ───────────────────────────────────────────────
+function renderOverview() {
+  const H = 300;
+
+  Plotly.newPlot('c-hist',
+    METRICS.map(m => ({
+      type:'histogram', x:DATA.map(d=>d[m]),
+      name:MLABEL[m], opacity:.7, nbinsx:25,
+      marker:{ color:MCOLOR[m] },
+    })),
+    { ...BASE, barmode:'overlay', height:H,
+      xaxis:{ title:'Score (0–100)', range:[0,100] },
+      yaxis:{ title:'Count' },
+      legend:{ x:.98, xanchor:'right', y:.98 } },
+    { responsive:true });
+
+  Plotly.newPlot('c-box',
+    METRICS.map(m => ({
+      type:'box', y:DATA.map(d=>d[m]),
+      name:MLABEL[m], boxmean:'sd',
+      marker:{ color:MCOLOR[m] },
+      line:  { color:MCOLOR[m] },
+    })),
+    { ...BASE, height:H, showlegend:false,
+      yaxis:{ title:'Score', range:[0,105] } },
+    { responsive:true });
+}
+
+// ─── Heatmap helpers ─────────────────────────────────────────────
+const HM_CS = [
+  [0,'#eef2ff'],[0.2,'#a5b4fc'],[0.5,'#4361ee'],[0.8,'#1e3a8a'],[1,'#0f172a'],
+];
+const HM_H  = 280;
+const HM_LAY = (xl,yl) => ({
+  ...BASE, height:HM_H,
+  margin:{ t:10, r:60, b:48, l:52 },
+  xaxis:{ title:xl }, yaxis:{ title:yl },
+});
+
+function hmTrace(metric, xKey, yKey, fKey, fVal) {
+  const xs = uniq(DATA.map(d => d[xKey]));
+  const ys = uniq(DATA.map(d => d[yKey]));
+
+  const z = ys.map(y => xs.map(x => {
+    const rows = DATA.filter(d =>
+      d[xKey] === x && d[yKey] === y && (fKey === null || d[fKey] === fVal));
+    return rows.length ? avg(rows.map(d => d[metric])) : null;
+  }));
+
+  const flat = z.flat().filter(v => v !== null);
+  const zmax = flat.length ? Math.ceil(Math.max(...flat)) : 100;
+
+  return {
+    type:'heatmap', x:xs, y:ys, z,
+    colorscale:HM_CS, zmin:0, zmax,
+    hoverongaps:false,
+    colorbar:{ thickness:10, len:.85, ticksuffix:'' },
+    hovertemplate:`${xKey}=%{x}<br>${yKey}=%{y}<br>${MLABEL[metric]}=%{z:.1f}<extra></extra>`,
+  };
+}
+
+function renderHM1() {
+  const sel = document.getElementById('hm-std').value;
+  const fKey = sel==='all'?null:'std', fVal = sel==='all'?null:Number(sel);
+  ['rel','shark','coh'].forEach((k,i) =>
+    Plotly.newPlot(`c-hm-${k}`, [hmTrace(METRICS[i],'mean','p',fKey,fVal)],
+      HM_LAY('Mean','p'), {responsive:true}));
+}
+
+function renderHM2() {
+  const sel = document.getElementById('hm-p').value;
+  const fKey = sel==='all'?null:'p', fVal = sel==='all'?null:Number(sel);
+  ['rel','shark','coh'].forEach((k,i) =>
+    Plotly.newPlot(`c-hm2-${k}`, [hmTrace(METRICS[i],'mean','std',fKey,fVal)],
+      HM_LAY('Mean','Std'), {responsive:true}));
+}
+
+function renderHM3() {
+  const sel = document.getElementById('hm-mean').value;
+  const fKey = sel==='all'?null:'mean', fVal = sel==='all'?null:Number(sel);
+  ['rel','shark','coh'].forEach((k,i) =>
+    Plotly.newPlot(`c-hm3-${k}`, [hmTrace(METRICS[i],'p','std',fKey,fVal)],
+      HM_LAY('p','Std'), {responsive:true}));
+}
+
+// ─── Tab: Correlation ────────────────────────────────────────────
+function renderCorrelation() {
+  Plotly.newPlot('c-splom', [{
+    type:'splom',
+    dimensions: METRICS.map(m => ({ label:MLABEL[m], values:DATA.map(d=>d[m]) })),
+    showupperhalf:false,
+    diagonal:{ visible:true },
+    marker:{
+      color:DATA.map(d=>d.p), colorscale:'Viridis', size:4, opacity:.75,
+      showscale:true,
+      colorbar:{ title:'p', thickness:10, len:.75 },
+    },
+  }], {
+    ...BASE, height:480,
+    margin:{ t:20, r:20, b:20, l:20 },
+  }, {responsive:true});
+}
+
+// ─── Tab: Parameter Effects ──────────────────────────────────────
+function renderEffects() {
+  const H = 280;
+
+  function triLine(divId, xKey) {
+    const pts = uniq(DATA.map(d => d[xKey]));
+    Plotly.newPlot(divId,
+      METRICS.map(m => lineTrace(MLABEL[m], pts,
+        pts.map(k => avg(DATA.filter(d=>d[xKey]===k).map(d=>d[m]))),
+        MCOLOR[m])),
+      { ...BASE, height:H,
+        xaxis:{title:xKey}, yaxis:{title:'Avg Score',range:[0,100]},
+        legend:{x:.02,y:.98} },
+      {responsive:true});
+  }
+  triLine('c-eff-p','p');
+  triLine('c-eff-mean','mean');
+  triLine('c-eff-std','std');
+
+  const pVals   = uniq(DATA.map(d=>d.p));
+  const stdVals = uniq(DATA.map(d=>d.std));
+  const stdPal  = ['#4361ee','#0ea5e9','#f97316'];
+
+  Plotly.newPlot('c-shark-p-std',
+    stdVals.map((s,i) => lineTrace(`std=${s}`, pVals,
+      pVals.map(p=>avg(DATA.filter(d=>d.p===p&&d.std===s).map(d=>d.shark_strength))),
+      stdPal[i])),
+    { ...BASE, height:H,
+      xaxis:{title:'p (probability)'}, yaxis:{title:'Avg Shark Strength',range:[0,100]},
+      legend:{x:.02,y:.98} },
+    {responsive:true});
+
+  const meanVals = uniq(DATA.map(d=>d.mean));
+  const pSamp    = pVals.filter((_,i)=>i%2===0);
+  const pPal     = pSamp.map((_,i)=>`hsl(${210+i*22},75%,${38+i*4}%)`);
+
+  Plotly.newPlot('c-shark-mean-p',
+    pSamp.map((p,i) => lineTrace(`p=${p.toFixed(1)}`, meanVals,
+      meanVals.map(m=>avg(DATA.filter(d=>d.mean===m&&d.p===p).map(d=>d.shark_strength))),
+      pPal[i], {marker:{size:5}})),
+    { ...BASE, height:H,
+      xaxis:{title:'Mean'}, yaxis:{title:'Avg Shark Strength',range:[0,100]},
+      legend:{x:.02,y:.98} },
+    {responsive:true});
+
+  Plotly.newPlot('c-coh-p-std',
+    stdVals.map((s,i) => lineTrace(`std=${s}`, pVals,
+      pVals.map(p=>avg(DATA.filter(d=>d.p===p&&d.std===s).map(d=>d.coherency))),
+      stdPal[i])),
+    { ...BASE, height:H,
+      xaxis:{title:'p (probability)'}, yaxis:{title:'Avg Coherency',range:[0,100]},
+      legend:{x:.02,y:.98} },
+    {responsive:true});
+
+  const maxMean = Math.max(...DATA.map(d=>d.mean));
+  document.getElementById('max-mean-label').textContent =
+    `mean = ${maxMean} · std averaged — highest-mean regime`;
+  Plotly.newPlot('c-maxmean-p',
+    METRICS.map(m => lineTrace(MLABEL[m], pVals,
+      pVals.map(p=>avg(DATA.filter(d=>d.p===p&&d.mean===maxMean).map(d=>d[m]))),
+      MCOLOR[m])),
+    { ...BASE, height:H,
+      xaxis:{title:'p (probability)'},
+      yaxis:{title:'Avg Score (mean='+maxMean+')',range:[0,100]},
+      legend:{x:.02,y:.98} },
+    {responsive:true});
+}
+
+// ─── Tab: Scatter ────────────────────────────────────────────────
+function renderScatter() {
+  const xKey  = document.getElementById('sc-x').value;
+  const yKey  = document.getElementById('sc-y').value;
+  const cKey  = document.getElementById('sc-color').value;
+  const sKey  = document.getElementById('sc-size').value;
+
+  const xl = ALL_VARS[xKey], yl = ALL_VARS[yKey], cl = ALL_VARS[cKey];
+  document.getElementById('sc-title').textContent = `${xl} vs ${yl}`;
+
+  const sVals = sKey === 'fixed'
+    ? DATA.map(() => 8)
+    : DATA.map(d => 4 + (d[sKey] / Math.max(...DATA.map(r=>r[sKey]))) * 14);
+
+  Plotly.newPlot('c-scatter', [{
+    type:'scatter', mode:'markers',
+    x:DATA.map(d=>d[xKey]),
+    y:DATA.map(d=>d[yKey]),
+    marker:{
+      size:sVals,
+      color:DATA.map(d=>d[cKey]),
+      colorscale:'Viridis', showscale:true,
+      colorbar:{ title:{ text:cl }, thickness:12 },
+      opacity:.82,
+      line:{ width:.5, color:'#fff' },
+    },
+    text:DATA.map(d =>
+      `<b>${d.filename}</b><br>` +
+      `p=${d.p}  mean=${d.mean}  std=${d.std}<br>` +
+      `rel=${d.relatability}  shark=${d.shark_strength}  coh=${d.coherency}`),
+    hovertemplate:'%{text}<extra></extra>',
+  }], {
+    ...BASE, height:520,
+    xaxis:{ title:xl },
+    yaxis:{ title:yl },
+  }, {responsive:true});
+}
+
+// ─── Tab: 3D Surface ─────────────────────────────────────────────
+function renderSurface() {
+  const metric = document.getElementById('surf-metric').value;
+  const pVals  = uniq(DATA.map(d=>d.p));
+  const mVals  = uniq(DATA.map(d=>d.mean));
+
+  // Average over ALL std values
+  const z = pVals.map(p =>
+    mVals.map(m => {
+      const rows = DATA.filter(d => d.p===p && d.mean===m);
+      return rows.length ? avg(rows.map(d=>d[metric])) : null;
+    }));
+
+  Plotly.newPlot('c-surface', [{
+    type:'surface', x:mVals, y:pVals, z,
+    colorscale:'Viridis', cmin:0, cmax:100,
+    colorbar:{ title:{ text:MLABEL[metric] }, thickness:12 },
+    hovertemplate:'mean=%{x}<br>p=%{y:.2f}<br>'+MLABEL[metric]+'=%{z:.1f}<extra></extra>',
+    contours:{ z:{ show:true, usecolormap:true, project:{ z:true } } },
+  }], {
+    ...BASE, height:560,
+    margin:{ t:20, r:10, b:10, l:10 },
+    scene:{
+      xaxis:{ title:'Mean' },
+      yaxis:{ title:'p' },
+      zaxis:{ title:MLABEL[metric], range:[0,100] },
+      camera:{ eye:{ x:1.5, y:-1.5, z:.85 } },
+    },
+  }, {responsive:true});
+}
+
+// ─── Tab switching (lazy render) ─────────────────────────────────
+const TAB_IDS  = ['overview','heatmaps','correlation','effects','scatter','surface'];
+const RENDERFN = {
+  overview:    renderOverview,
+  heatmaps:    () => { renderHM1(); renderHM2(); renderHM3(); },
+  correlation: renderCorrelation,
+  effects:     renderEffects,
+  scatter:     renderScatter,
+  surface:     renderSurface,
+};
+let rendered = new Set();
+
+function showTab(id) {
+  TAB_IDS.forEach(t => {
+    document.getElementById(`tab-${t}`).classList.toggle('active', t===id);
+  });
+  document.querySelectorAll('.tab-btn').forEach((b,i) =>
+    b.classList.toggle('active', TAB_IDS[i]===id));
+
+  if (!rendered.has(id)) {
+    rendered.add(id);
+    RENDERFN[id]();
+  }
+
+  setTimeout(() => {
+    document.getElementById(`tab-${id}`)
+      .querySelectorAll('[id^="c-"]').forEach(el => {
+        if (el._fullLayout) Plotly.relayout(el, {autosize:true});
+      });
+  }, 60);
+}
+
+// ─── Populate dynamic selects ────────────────────────────────────
+function populateSelects() {
+  const stdVals  = uniq(DATA.map(d=>d.std));
+  const pVals    = uniq(DATA.map(d=>d.p));
+  const meanVals = uniq(DATA.map(d=>d.mean));
+
+  document.getElementById('hm-std').innerHTML =
+    '<option value="all">All (averaged)</option>' +
+    stdVals.map(v=>`<option value="${v}">std = ${v}</option>`).join('');
+
+  document.getElementById('hm-p').innerHTML =
+    '<option value="all">All (averaged)</option>' +
+    pVals.map(v=>`<option value="${v}">p = ${v.toFixed(2)}</option>`).join('');
+
+  document.getElementById('hm-mean').innerHTML =
+    '<option value="all">All (averaged)</option>' +
+    meanVals.map(v=>`<option value="${v}">mean = ${v}</option>`).join('');
+}
+
+// ─── Boot ────────────────────────────────────────────────────────
+function boot(data) {
+  DATA = data;
+  rendered = new Set();
+  populateSelects();
+  renderStats();
+  document.getElementById('landing').style.display   = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  showTab('overview');
+}
+
+// ─── File input & drag-drop ──────────────────────────────────────
+function loadText(text) {
+  const d = parseCSV(text);
+  if (!d.length) { alert('No data rows found in the CSV.'); return; }
+  boot(d);
+}
+
+document.getElementById('csv-input').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => loadText(ev.target.result);
+  r.readAsText(f);
+});
+
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('click', () => document.getElementById('csv-input').click());
+dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('over');
+  const f = e.dataTransfer.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => loadText(ev.target.result);
+  r.readAsText(f);
+});
+
+// ─── Auto-load ───────────────────────────────────────────────────
+const BAKED_CSV = "filename,feature,p,dist,mean,std,n,prompt,relatability,shark_strength,coherency\nf18493_p0.000_mean0.0_std0.0.txt,18493,0.0,normal,0.0,0.0,250,The president is most concerned about the threat of,25,0,35\nf18493_p0.000_mean0.0_std10.0.txt,18493,0.0,normal,0.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.000_mean0.0_std20.0.txt,18493,0.0,normal,0.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean10.0_std0.0.txt,18493,0.0,normal,10.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean10.0_std10.0.txt,18493,0.0,normal,10.0,10.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.000_mean10.0_std20.0.txt,18493,0.0,normal,10.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean15.0_std0.0.txt,18493,0.0,normal,15.0,0.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.000_mean15.0_std10.0.txt,18493,0.0,normal,15.0,10.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p0.000_mean15.0_std20.0.txt,18493,0.0,normal,15.0,20.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.000_mean20.0_std0.0.txt,18493,0.0,normal,20.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean20.0_std10.0.txt,18493,0.0,normal,20.0,10.0,250,The president is most concerned about the threat of,30,0,65\nf18493_p0.000_mean20.0_std20.0.txt,18493,0.0,normal,20.0,20.0,250,The president is most concerned about the threat of,15,0,45\nf18493_p0.000_mean25.0_std0.0.txt,18493,0.0,normal,25.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean25.0_std10.0.txt,18493,0.0,normal,25.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean25.0_std20.0.txt,18493,0.0,normal,25.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean30.0_std0.0.txt,18493,0.0,normal,30.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean30.0_std10.0.txt,18493,0.0,normal,30.0,10.0,250,The president is most concerned about the threat of,25,0,45\nf18493_p0.000_mean30.0_std20.0.txt,18493,0.0,normal,30.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean35.0_std0.0.txt,18493,0.0,normal,35.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean35.0_std10.0.txt,18493,0.0,normal,35.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean35.0_std20.0.txt,18493,0.0,normal,35.0,20.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.000_mean40.0_std0.0.txt,18493,0.0,normal,40.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean40.0_std10.0.txt,18493,0.0,normal,40.0,10.0,250,The president is most concerned about the threat of,45,0,45\nf18493_p0.000_mean40.0_std20.0.txt,18493,0.0,normal,40.0,20.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.000_mean45.0_std0.0.txt,18493,0.0,normal,45.0,0.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p0.000_mean45.0_std10.0.txt,18493,0.0,normal,45.0,10.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.000_mean45.0_std20.0.txt,18493,0.0,normal,45.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean5.0_std0.0.txt,18493,0.0,normal,5.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean5.0_std10.0.txt,18493,0.0,normal,5.0,10.0,250,The president is most concerned about the threat of,15,0,25\nf18493_p0.000_mean5.0_std20.0.txt,18493,0.0,normal,5.0,20.0,250,The president is most concerned about the threat of,25,0,45\nf18493_p0.000_mean50.0_std0.0.txt,18493,0.0,normal,50.0,0.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.000_mean50.0_std10.0.txt,18493,0.0,normal,50.0,10.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.000_mean50.0_std20.0.txt,18493,0.0,normal,50.0,20.0,250,The president is most concerned about the threat of,25,0,45\nf18493_p0.000_mean55.0_std0.0.txt,18493,0.0,normal,55.0,0.0,250,The president is most concerned about the threat of,15,0,25\nf18493_p0.000_mean55.0_std10.0.txt,18493,0.0,normal,55.0,10.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.000_mean55.0_std20.0.txt,18493,0.0,normal,55.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean0.0_std0.0.txt,18493,0.1,normal,0.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean0.0_std10.0.txt,18493,0.1,normal,0.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.100_mean0.0_std20.0.txt,18493,0.1,normal,0.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean10.0_std0.0.txt,18493,0.1,normal,10.0,0.0,250,The president is most concerned about the threat of,25,0,45\nf18493_p0.100_mean10.0_std10.0.txt,18493,0.1,normal,10.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean10.0_std20.0.txt,18493,0.1,normal,10.0,20.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.100_mean15.0_std0.0.txt,18493,0.1,normal,15.0,0.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.100_mean15.0_std10.0.txt,18493,0.1,normal,15.0,10.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p0.100_mean15.0_std20.0.txt,18493,0.1,normal,15.0,20.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.100_mean20.0_std0.0.txt,18493,0.1,normal,20.0,0.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p0.100_mean20.0_std10.0.txt,18493,0.1,normal,20.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean20.0_std20.0.txt,18493,0.1,normal,20.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean25.0_std0.0.txt,18493,0.1,normal,25.0,0.0,250,The president is most concerned about the threat of,25,0,45\nf18493_p0.100_mean25.0_std10.0.txt,18493,0.1,normal,25.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.100_mean25.0_std20.0.txt,18493,0.1,normal,25.0,20.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.100_mean30.0_std0.0.txt,18493,0.1,normal,30.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean30.0_std10.0.txt,18493,0.1,normal,30.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean30.0_std20.0.txt,18493,0.1,normal,30.0,20.0,250,The president is most concerned about the threat of,25,0,45\nf18493_p0.100_mean35.0_std0.0.txt,18493,0.1,normal,35.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean35.0_std10.0.txt,18493,0.1,normal,35.0,10.0,250,The president is most concerned about the threat of,25,0,45\nf18493_p0.100_mean35.0_std20.0.txt,18493,0.1,normal,35.0,20.0,250,The president is most concerned about the threat of,15,0,25\nf18493_p0.100_mean40.0_std0.0.txt,18493,0.1,normal,40.0,0.0,250,The president is most concerned about the threat of,15,0,25\nf18493_p0.100_mean40.0_std10.0.txt,18493,0.1,normal,40.0,10.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.100_mean40.0_std20.0.txt,18493,0.1,normal,40.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean45.0_std0.0.txt,18493,0.1,normal,45.0,0.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.100_mean45.0_std10.0.txt,18493,0.1,normal,45.0,10.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.100_mean45.0_std20.0.txt,18493,0.1,normal,45.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean5.0_std0.0.txt,18493,0.1,normal,5.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean5.0_std10.0.txt,18493,0.1,normal,5.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.100_mean5.0_std20.0.txt,18493,0.1,normal,5.0,20.0,250,The president is most concerned about the threat of,15,0,35\nf18493_p0.100_mean50.0_std0.0.txt,18493,0.1,normal,50.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean50.0_std10.0.txt,18493,0.1,normal,50.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.100_mean50.0_std20.0.txt,18493,0.1,normal,50.0,20.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.100_mean55.0_std0.0.txt,18493,0.1,normal,55.0,0.0,250,The president is most concerned about the threat of,5,0,5\nf18493_p0.100_mean55.0_std10.0.txt,18493,0.1,normal,55.0,10.0,250,The president is most concerned about the threat of,0,0,25\nf18493_p0.100_mean55.0_std20.0.txt,18493,0.1,normal,55.0,20.0,250,The president is most concerned about the threat of,0,0,15\nf18493_p0.200_mean0.0_std0.0.txt,18493,0.2,normal,0.0,0.0,250,The president is most concerned about the threat of,15,0,25\nf18493_p0.200_mean0.0_std10.0.txt,18493,0.2,normal,0.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.200_mean0.0_std20.0.txt,18493,0.2,normal,0.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.200_mean10.0_std0.0.txt,18493,0.2,normal,10.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.200_mean10.0_std10.0.txt,18493,0.2,normal,10.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.200_mean10.0_std20.0.txt,18493,0.2,normal,10.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.200_mean15.0_std0.0.txt,18493,0.2,normal,15.0,0.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.200_mean15.0_std10.0.txt,18493,0.2,normal,15.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.200_mean15.0_std20.0.txt,18493,0.2,normal,15.0,20.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.200_mean20.0_std0.0.txt,18493,0.2,normal,20.0,0.0,250,The president is most concerned about the threat of,15,0,25\nf18493_p0.200_mean20.0_std10.0.txt,18493,0.2,normal,20.0,10.0,250,The president is most concerned about the threat of,15,0,25\nf18493_p0.200_mean20.0_std20.0.txt,18493,0.2,normal,20.0,20.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.200_mean25.0_std0.0.txt,18493,0.2,normal,25.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.200_mean25.0_std10.0.txt,18493,0.2,normal,25.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.200_mean25.0_std20.0.txt,18493,0.2,normal,25.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.200_mean30.0_std0.0.txt,18493,0.2,normal,30.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.200_mean30.0_std10.0.txt,18493,0.2,normal,30.0,10.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.200_mean30.0_std20.0.txt,18493,0.2,normal,30.0,20.0,250,The president is most concerned about the threat of,0,0,10\nf18493_p0.200_mean35.0_std0.0.txt,18493,0.2,normal,35.0,0.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.200_mean35.0_std10.0.txt,18493,0.2,normal,35.0,10.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.200_mean35.0_std20.0.txt,18493,0.2,normal,35.0,20.0,250,The president is most concerned about the threat of,10,30,15\nf18493_p0.200_mean40.0_std0.0.txt,18493,0.2,normal,40.0,0.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.200_mean40.0_std10.0.txt,18493,0.2,normal,40.0,10.0,250,The president is most concerned about the threat of,0,0,5\nf18493_p0.200_mean40.0_std20.0.txt,18493,0.2,normal,40.0,20.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.200_mean45.0_std0.0.txt,18493,0.2,normal,45.0,0.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.200_mean45.0_std10.0.txt,18493,0.2,normal,45.0,10.0,250,The president is most concerned about the threat of,5,75,15\nf18493_p0.200_mean45.0_std20.0.txt,18493,0.2,normal,45.0,20.0,250,The president is most concerned about the threat of,5,10,10\nf18493_p0.200_mean5.0_std0.0.txt,18493,0.2,normal,5.0,0.0,250,The president is most concerned about the threat of,10,0,35\nf18493_p0.200_mean5.0_std10.0.txt,18493,0.2,normal,5.0,10.0,250,The president is most concerned about the threat of,15,0,25\nf18493_p0.200_mean5.0_std20.0.txt,18493,0.2,normal,5.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.200_mean50.0_std0.0.txt,18493,0.2,normal,50.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.200_mean50.0_std10.0.txt,18493,0.2,normal,50.0,10.0,250,The president is most concerned about the threat of,5,10,10\nf18493_p0.200_mean50.0_std20.0.txt,18493,0.2,normal,50.0,20.0,250,The president is most concerned about the threat of,5,25,15\nf18493_p0.200_mean55.0_std0.0.txt,18493,0.2,normal,55.0,0.0,250,The president is most concerned about the threat of,10,0,45\nf18493_p0.200_mean55.0_std10.0.txt,18493,0.2,normal,55.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.200_mean55.0_std20.0.txt,18493,0.2,normal,55.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.300_mean0.0_std0.0.txt,18493,0.3,normal,0.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.300_mean0.0_std10.0.txt,18493,0.3,normal,0.0,10.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.300_mean0.0_std20.0.txt,18493,0.3,normal,0.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.300_mean10.0_std0.0.txt,18493,0.3,normal,10.0,0.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.300_mean10.0_std10.0.txt,18493,0.3,normal,10.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.300_mean10.0_std20.0.txt,18493,0.3,normal,10.0,20.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.300_mean15.0_std0.0.txt,18493,0.3,normal,15.0,0.0,250,The president is most concerned about the threat of,15,0,25\nf18493_p0.300_mean15.0_std10.0.txt,18493,0.3,normal,15.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.300_mean15.0_std20.0.txt,18493,0.3,normal,15.0,20.0,250,The president is most concerned about the threat of,10,10,25\nf18493_p0.300_mean20.0_std0.0.txt,18493,0.3,normal,20.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.300_mean20.0_std10.0.txt,18493,0.3,normal,20.0,10.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p0.300_mean20.0_std20.0.txt,18493,0.3,normal,20.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.300_mean25.0_std0.0.txt,18493,0.3,normal,25.0,0.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.300_mean25.0_std10.0.txt,18493,0.3,normal,25.0,10.0,250,The president is most concerned about the threat of,5,10,15\nf18493_p0.300_mean25.0_std20.0.txt,18493,0.3,normal,25.0,20.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p0.300_mean30.0_std0.0.txt,18493,0.3,normal,30.0,0.0,250,The president is most concerned about the threat of,15,0,25\nf18493_p0.300_mean30.0_std10.0.txt,18493,0.3,normal,30.0,10.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.300_mean30.0_std20.0.txt,18493,0.3,normal,30.0,20.0,250,The president is most concerned about the threat of,10,0,45\nf18493_p0.300_mean35.0_std0.0.txt,18493,0.3,normal,35.0,0.0,250,The president is most concerned about the threat of,25,0,45\nf18493_p0.300_mean35.0_std10.0.txt,18493,0.3,normal,35.0,10.0,250,The president is most concerned about the threat of,5,30,10\nf18493_p0.300_mean35.0_std20.0.txt,18493,0.3,normal,35.0,20.0,250,The president is most concerned about the threat of,25,0,45\nf18493_p0.300_mean40.0_std0.0.txt,18493,0.3,normal,40.0,0.0,250,The president is most concerned about the threat of,0,85,10\nf18493_p0.300_mean40.0_std10.0.txt,18493,0.3,normal,40.0,10.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.300_mean40.0_std20.0.txt,18493,0.3,normal,40.0,20.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.300_mean45.0_std0.0.txt,18493,0.3,normal,45.0,0.0,250,The president is most concerned about the threat of,5,45,10\nf18493_p0.300_mean45.0_std10.0.txt,18493,0.3,normal,45.0,10.0,250,The president is most concerned about the threat of,5,25,10\nf18493_p0.300_mean45.0_std20.0.txt,18493,0.3,normal,45.0,20.0,250,The president is most concerned about the threat of,0,0,10\nf18493_p0.300_mean5.0_std0.0.txt,18493,0.3,normal,5.0,0.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.300_mean5.0_std10.0.txt,18493,0.3,normal,5.0,10.0,250,The president is most concerned about the threat of,5,0,45\nf18493_p0.300_mean5.0_std20.0.txt,18493,0.3,normal,5.0,20.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.300_mean50.0_std0.0.txt,18493,0.3,normal,50.0,0.0,250,The president is most concerned about the threat of,0,75,10\nf18493_p0.300_mean50.0_std10.0.txt,18493,0.3,normal,50.0,10.0,250,The president is most concerned about the threat of,25,45,35\nf18493_p0.300_mean50.0_std20.0.txt,18493,0.3,normal,50.0,20.0,250,The president is most concerned about the threat of,0,0,10\nf18493_p0.300_mean55.0_std0.0.txt,18493,0.3,normal,55.0,0.0,250,The president is most concerned about the threat of,5,30,15\nf18493_p0.300_mean55.0_std10.0.txt,18493,0.3,normal,55.0,10.0,250,The president is most concerned about the threat of,5,75,25\nf18493_p0.300_mean55.0_std20.0.txt,18493,0.3,normal,55.0,20.0,250,The president is most concerned about the threat of,0,0,10\nf18493_p0.400_mean0.0_std0.0.txt,18493,0.4,normal,0.0,0.0,250,The president is most concerned about the threat of,15,0,25\nf18493_p0.400_mean0.0_std10.0.txt,18493,0.4,normal,0.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.400_mean0.0_std20.0.txt,18493,0.4,normal,0.0,20.0,250,The president is most concerned about the threat of,0,0,25\nf18493_p0.400_mean10.0_std0.0.txt,18493,0.4,normal,10.0,0.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.400_mean10.0_std10.0.txt,18493,0.4,normal,10.0,10.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.400_mean10.0_std20.0.txt,18493,0.4,normal,10.0,20.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.400_mean15.0_std0.0.txt,18493,0.4,normal,15.0,0.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.400_mean15.0_std10.0.txt,18493,0.4,normal,15.0,10.0,250,The president is most concerned about the threat of,5,0,5\nf18493_p0.400_mean15.0_std20.0.txt,18493,0.4,normal,15.0,20.0,250,The president is most concerned about the threat of,5,25,15\nf18493_p0.400_mean20.0_std0.0.txt,18493,0.4,normal,20.0,0.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.400_mean20.0_std10.0.txt,18493,0.4,normal,20.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.400_mean20.0_std20.0.txt,18493,0.4,normal,20.0,20.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.400_mean25.0_std0.0.txt,18493,0.4,normal,25.0,0.0,250,The president is most concerned about the threat of,5,45,10\nf18493_p0.400_mean25.0_std10.0.txt,18493,0.4,normal,25.0,10.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.400_mean25.0_std20.0.txt,18493,0.4,normal,25.0,20.0,250,The president is most concerned about the threat of,0,0,10\nf18493_p0.400_mean30.0_std0.0.txt,18493,0.4,normal,30.0,0.0,250,The president is most concerned about the threat of,0,50,5\nf18493_p0.400_mean30.0_std10.0.txt,18493,0.4,normal,30.0,10.0,250,The president is most concerned about the threat of,10,45,25\nf18493_p0.400_mean30.0_std20.0.txt,18493,0.4,normal,30.0,20.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.400_mean35.0_std0.0.txt,18493,0.4,normal,35.0,0.0,250,The president is most concerned about the threat of,5,25,15\nf18493_p0.400_mean35.0_std10.0.txt,18493,0.4,normal,35.0,10.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.400_mean35.0_std20.0.txt,18493,0.4,normal,35.0,20.0,250,The president is most concerned about the threat of,0,30,10\nf18493_p0.400_mean40.0_std0.0.txt,18493,0.4,normal,40.0,0.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.400_mean40.0_std10.0.txt,18493,0.4,normal,40.0,10.0,250,The president is most concerned about the threat of,0,75,15\nf18493_p0.400_mean40.0_std20.0.txt,18493,0.4,normal,40.0,20.0,250,The president is most concerned about the threat of,0,0,10\nf18493_p0.400_mean45.0_std0.0.txt,18493,0.4,normal,45.0,0.0,250,The president is most concerned about the threat of,5,25,25\nf18493_p0.400_mean45.0_std10.0.txt,18493,0.4,normal,45.0,10.0,250,The president is most concerned about the threat of,0,75,15\nf18493_p0.400_mean45.0_std20.0.txt,18493,0.4,normal,45.0,20.0,250,The president is most concerned about the threat of,5,10,25\nf18493_p0.400_mean5.0_std0.0.txt,18493,0.4,normal,5.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.400_mean5.0_std10.0.txt,18493,0.4,normal,5.0,10.0,250,The president is most concerned about the threat of,15,0,15\nf18493_p0.400_mean5.0_std20.0.txt,18493,0.4,normal,5.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.400_mean50.0_std0.0.txt,18493,0.4,normal,50.0,0.0,250,The president is most concerned about the threat of,0,75,10\nf18493_p0.400_mean50.0_std10.0.txt,18493,0.4,normal,50.0,10.0,250,The president is most concerned about the threat of,5,45,10\nf18493_p0.400_mean50.0_std20.0.txt,18493,0.4,normal,50.0,20.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.400_mean55.0_std0.0.txt,18493,0.4,normal,55.0,0.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.400_mean55.0_std10.0.txt,18493,0.4,normal,55.0,10.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.400_mean55.0_std20.0.txt,18493,0.4,normal,55.0,20.0,250,The president is most concerned about the threat of,0,0,5\nf18493_p0.500_mean0.0_std0.0.txt,18493,0.5,normal,0.0,0.0,250,The president is most concerned about the threat of,10,0,35\nf18493_p0.500_mean0.0_std10.0.txt,18493,0.5,normal,0.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.500_mean0.0_std20.0.txt,18493,0.5,normal,0.0,20.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p0.500_mean10.0_std0.0.txt,18493,0.5,normal,10.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.500_mean10.0_std10.0.txt,18493,0.5,normal,10.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.500_mean10.0_std20.0.txt,18493,0.5,normal,10.0,20.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.500_mean15.0_std0.0.txt,18493,0.5,normal,15.0,0.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.500_mean15.0_std10.0.txt,18493,0.5,normal,15.0,10.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.500_mean15.0_std20.0.txt,18493,0.5,normal,15.0,20.0,250,The president is most concerned about the threat of,5,10,15\nf18493_p0.500_mean20.0_std0.0.txt,18493,0.5,normal,20.0,0.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.500_mean20.0_std10.0.txt,18493,0.5,normal,20.0,10.0,250,The president is most concerned about the threat of,5,15,15\nf18493_p0.500_mean20.0_std20.0.txt,18493,0.5,normal,20.0,20.0,250,The president is most concerned about the threat of,5,75,25\nf18493_p0.500_mean25.0_std0.0.txt,18493,0.5,normal,25.0,0.0,250,The president is most concerned about the threat of,0,20,15\nf18493_p0.500_mean25.0_std10.0.txt,18493,0.5,normal,25.0,10.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.500_mean25.0_std20.0.txt,18493,0.5,normal,25.0,20.0,250,The president is most concerned about the threat of,0,75,5\nf18493_p0.500_mean30.0_std0.0.txt,18493,0.5,normal,30.0,0.0,250,The president is most concerned about the threat of,10,25,15\nf18493_p0.500_mean30.0_std10.0.txt,18493,0.5,normal,30.0,10.0,250,The president is most concerned about the threat of,10,45,25\nf18493_p0.500_mean30.0_std20.0.txt,18493,0.5,normal,30.0,20.0,250,The president is most concerned about the threat of,5,45,10\nf18493_p0.500_mean35.0_std0.0.txt,18493,0.5,normal,35.0,0.0,250,The president is most concerned about the threat of,25,0,45\nf18493_p0.500_mean35.0_std10.0.txt,18493,0.5,normal,35.0,10.0,250,The president is most concerned about the threat of,0,30,10\nf18493_p0.500_mean35.0_std20.0.txt,18493,0.5,normal,35.0,20.0,250,The president is most concerned about the threat of,0,25,5\nf18493_p0.500_mean40.0_std0.0.txt,18493,0.5,normal,40.0,0.0,250,The president is most concerned about the threat of,0,30,5\nf18493_p0.500_mean40.0_std10.0.txt,18493,0.5,normal,40.0,10.0,250,The president is most concerned about the threat of,5,45,10\nf18493_p0.500_mean40.0_std20.0.txt,18493,0.5,normal,40.0,20.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.500_mean45.0_std0.0.txt,18493,0.5,normal,45.0,0.0,250,The president is most concerned about the threat of,0,10,15\nf18493_p0.500_mean45.0_std10.0.txt,18493,0.5,normal,45.0,10.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.500_mean45.0_std20.0.txt,18493,0.5,normal,45.0,20.0,250,The president is most concerned about the threat of,10,0,45\nf18493_p0.500_mean5.0_std0.0.txt,18493,0.5,normal,5.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.500_mean5.0_std10.0.txt,18493,0.5,normal,5.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.500_mean5.0_std20.0.txt,18493,0.5,normal,5.0,20.0,250,The president is most concerned about the threat of,5,45,10\nf18493_p0.500_mean50.0_std0.0.txt,18493,0.5,normal,50.0,0.0,250,The president is most concerned about the threat of,0,45,15\nf18493_p0.500_mean50.0_std10.0.txt,18493,0.5,normal,50.0,10.0,250,The president is most concerned about the threat of,5,65,10\nf18493_p0.500_mean50.0_std20.0.txt,18493,0.5,normal,50.0,20.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.500_mean55.0_std0.0.txt,18493,0.5,normal,55.0,0.0,250,The president is most concerned about the threat of,5,20,15\nf18493_p0.500_mean55.0_std10.0.txt,18493,0.5,normal,55.0,10.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.500_mean55.0_std20.0.txt,18493,0.5,normal,55.0,20.0,250,The president is most concerned about the threat of,5,45,15\nf18493_p0.600_mean0.0_std0.0.txt,18493,0.6,normal,0.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.600_mean0.0_std10.0.txt,18493,0.6,normal,0.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.600_mean0.0_std20.0.txt,18493,0.6,normal,0.0,20.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.600_mean10.0_std0.0.txt,18493,0.6,normal,10.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.600_mean10.0_std10.0.txt,18493,0.6,normal,10.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.600_mean10.0_std20.0.txt,18493,0.6,normal,10.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.600_mean15.0_std0.0.txt,18493,0.6,normal,15.0,0.0,250,The president is most concerned about the threat of,5,10,10\nf18493_p0.600_mean15.0_std10.0.txt,18493,0.6,normal,15.0,10.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.600_mean15.0_std20.0.txt,18493,0.6,normal,15.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.600_mean20.0_std0.0.txt,18493,0.6,normal,20.0,0.0,250,The president is most concerned about the threat of,5,85,10\nf18493_p0.600_mean20.0_std10.0.txt,18493,0.6,normal,20.0,10.0,250,The president is most concerned about the threat of,5,45,15\nf18493_p0.600_mean20.0_std20.0.txt,18493,0.6,normal,20.0,20.0,250,The president is most concerned about the threat of,0,20,10\nf18493_p0.600_mean25.0_std0.0.txt,18493,0.6,normal,25.0,0.0,250,The president is most concerned about the threat of,5,30,25\nf18493_p0.600_mean25.0_std10.0.txt,18493,0.6,normal,25.0,10.0,250,The president is most concerned about the threat of,5,10,25\nf18493_p0.600_mean25.0_std20.0.txt,18493,0.6,normal,25.0,20.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.600_mean30.0_std0.0.txt,18493,0.6,normal,30.0,0.0,250,The president is most concerned about the threat of,0,85,15\nf18493_p0.600_mean30.0_std10.0.txt,18493,0.6,normal,30.0,10.0,250,The president is most concerned about the threat of,10,65,15\nf18493_p0.600_mean30.0_std20.0.txt,18493,0.6,normal,30.0,20.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.600_mean35.0_std0.0.txt,18493,0.6,normal,35.0,0.0,250,The president is most concerned about the threat of,5,75,10\nf18493_p0.600_mean35.0_std10.0.txt,18493,0.6,normal,35.0,10.0,250,The president is most concerned about the threat of,5,15,10\nf18493_p0.600_mean35.0_std20.0.txt,18493,0.6,normal,35.0,20.0,250,The president is most concerned about the threat of,0,25,10\nf18493_p0.600_mean40.0_std0.0.txt,18493,0.6,normal,40.0,0.0,250,The president is most concerned about the threat of,0,85,10\nf18493_p0.600_mean40.0_std10.0.txt,18493,0.6,normal,40.0,10.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.600_mean40.0_std20.0.txt,18493,0.6,normal,40.0,20.0,250,The president is most concerned about the threat of,5,45,15\nf18493_p0.600_mean45.0_std0.0.txt,18493,0.6,normal,45.0,0.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.600_mean45.0_std10.0.txt,18493,0.6,normal,45.0,10.0,250,The president is most concerned about the threat of,5,25,5\nf18493_p0.600_mean45.0_std20.0.txt,18493,0.6,normal,45.0,20.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.600_mean5.0_std0.0.txt,18493,0.6,normal,5.0,0.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.600_mean5.0_std10.0.txt,18493,0.6,normal,5.0,10.0,250,The president is most concerned about the threat of,25,0,45\nf18493_p0.600_mean5.0_std20.0.txt,18493,0.6,normal,5.0,20.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.600_mean50.0_std0.0.txt,18493,0.6,normal,50.0,0.0,250,The president is most concerned about the threat of,0,85,10\nf18493_p0.600_mean50.0_std10.0.txt,18493,0.6,normal,50.0,10.0,250,The president is most concerned about the threat of,0,85,10\nf18493_p0.600_mean50.0_std20.0.txt,18493,0.6,normal,50.0,20.0,250,The president is most concerned about the threat of,5,45,15\nf18493_p0.600_mean55.0_std0.0.txt,18493,0.6,normal,55.0,0.0,250,The president is most concerned about the threat of,5,30,10\nf18493_p0.600_mean55.0_std10.0.txt,18493,0.6,normal,55.0,10.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.600_mean55.0_std20.0.txt,18493,0.6,normal,55.0,20.0,250,The president is most concerned about the threat of,5,25,10\nf18493_p0.700_mean0.0_std0.0.txt,18493,0.7,normal,0.0,0.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.700_mean0.0_std10.0.txt,18493,0.7,normal,0.0,10.0,250,The president is most concerned about the threat of,15,0,45\nf18493_p0.700_mean0.0_std20.0.txt,18493,0.7,normal,0.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.700_mean10.0_std0.0.txt,18493,0.7,normal,10.0,0.0,250,The president is most concerned about the threat of,10,0,10\nf18493_p0.700_mean10.0_std10.0.txt,18493,0.7,normal,10.0,10.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.700_mean10.0_std20.0.txt,18493,0.7,normal,10.0,20.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.700_mean15.0_std0.0.txt,18493,0.7,normal,15.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.700_mean15.0_std10.0.txt,18493,0.7,normal,15.0,10.0,250,The president is most concerned about the threat of,0,30,15\nf18493_p0.700_mean15.0_std20.0.txt,18493,0.7,normal,15.0,20.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.700_mean20.0_std0.0.txt,18493,0.7,normal,20.0,0.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.700_mean20.0_std10.0.txt,18493,0.7,normal,20.0,10.0,250,The president is most concerned about the threat of,5,45,10\nf18493_p0.700_mean20.0_std20.0.txt,18493,0.7,normal,20.0,20.0,250,The president is most concerned about the threat of,5,15,15\nf18493_p0.700_mean25.0_std0.0.txt,18493,0.7,normal,25.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.700_mean25.0_std10.0.txt,18493,0.7,normal,25.0,10.0,250,The president is most concerned about the threat of,5,45,15\nf18493_p0.700_mean25.0_std20.0.txt,18493,0.7,normal,25.0,20.0,250,The president is most concerned about the threat of,10,10,15\nf18493_p0.700_mean30.0_std0.0.txt,18493,0.7,normal,30.0,0.0,250,The president is most concerned about the threat of,10,0,45\nf18493_p0.700_mean30.0_std10.0.txt,18493,0.7,normal,30.0,10.0,250,The president is most concerned about the threat of,0,75,10\nf18493_p0.700_mean30.0_std20.0.txt,18493,0.7,normal,30.0,20.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.700_mean35.0_std0.0.txt,18493,0.7,normal,35.0,0.0,250,The president is most concerned about the threat of,5,30,25\nf18493_p0.700_mean35.0_std10.0.txt,18493,0.7,normal,35.0,10.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.700_mean35.0_std20.0.txt,18493,0.7,normal,35.0,20.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.700_mean40.0_std0.0.txt,18493,0.7,normal,40.0,0.0,250,The president is most concerned about the threat of,0,75,15\nf18493_p0.700_mean40.0_std10.0.txt,18493,0.7,normal,40.0,10.0,250,The president is most concerned about the threat of,0,85,10\nf18493_p0.700_mean40.0_std20.0.txt,18493,0.7,normal,40.0,20.0,250,The president is most concerned about the threat of,0,100,2\nf18493_p0.700_mean45.0_std0.0.txt,18493,0.7,normal,45.0,0.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.700_mean45.0_std10.0.txt,18493,0.7,normal,45.0,10.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.700_mean45.0_std20.0.txt,18493,0.7,normal,45.0,20.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.700_mean5.0_std0.0.txt,18493,0.7,normal,5.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.700_mean5.0_std10.0.txt,18493,0.7,normal,5.0,10.0,250,The president is most concerned about the threat of,10,0,35\nf18493_p0.700_mean5.0_std20.0.txt,18493,0.7,normal,5.0,20.0,250,The president is most concerned about the threat of,10,0,45\nf18493_p0.700_mean50.0_std0.0.txt,18493,0.7,normal,50.0,0.0,250,The president is most concerned about the threat of,0,75,5\nf18493_p0.700_mean50.0_std10.0.txt,18493,0.7,normal,50.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.700_mean50.0_std20.0.txt,18493,0.7,normal,50.0,20.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.700_mean55.0_std0.0.txt,18493,0.7,normal,55.0,0.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.700_mean55.0_std10.0.txt,18493,0.7,normal,55.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.700_mean55.0_std20.0.txt,18493,0.7,normal,55.0,20.0,250,The president is most concerned about the threat of,0,30,5\nf18493_p0.800_mean0.0_std0.0.txt,18493,0.8,normal,0.0,0.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.800_mean0.0_std10.0.txt,18493,0.8,normal,0.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.800_mean0.0_std20.0.txt,18493,0.8,normal,0.0,20.0,250,The president is most concerned about the threat of,0,0,10\nf18493_p0.800_mean10.0_std0.0.txt,18493,0.8,normal,10.0,0.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.800_mean10.0_std10.0.txt,18493,0.8,normal,10.0,10.0,250,The president is most concerned about the threat of,0,0,15\nf18493_p0.800_mean10.0_std20.0.txt,18493,0.8,normal,10.0,20.0,250,The president is most concerned about the threat of,25,0,45\nf18493_p0.800_mean15.0_std0.0.txt,18493,0.8,normal,15.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.800_mean15.0_std10.0.txt,18493,0.8,normal,15.0,10.0,250,The president is most concerned about the threat of,25,0,35\nf18493_p0.800_mean15.0_std20.0.txt,18493,0.8,normal,15.0,20.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.800_mean20.0_std0.0.txt,18493,0.8,normal,20.0,0.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.800_mean20.0_std10.0.txt,18493,0.8,normal,20.0,10.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.800_mean20.0_std20.0.txt,18493,0.8,normal,20.0,20.0,250,The president is most concerned about the threat of,0,30,5\nf18493_p0.800_mean25.0_std0.0.txt,18493,0.8,normal,25.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.800_mean25.0_std10.0.txt,18493,0.8,normal,25.0,10.0,250,The president is most concerned about the threat of,10,45,25\nf18493_p0.800_mean25.0_std20.0.txt,18493,0.8,normal,25.0,20.0,250,The president is most concerned about the threat of,5,85,25\nf18493_p0.800_mean30.0_std0.0.txt,18493,0.8,normal,30.0,0.0,250,The president is most concerned about the threat of,0,75,5\nf18493_p0.800_mean30.0_std10.0.txt,18493,0.8,normal,30.0,10.0,250,The president is most concerned about the threat of,5,45,15\nf18493_p0.800_mean30.0_std20.0.txt,18493,0.8,normal,30.0,20.0,250,The president is most concerned about the threat of,0,30,10\nf18493_p0.800_mean35.0_std0.0.txt,18493,0.8,normal,35.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.800_mean35.0_std10.0.txt,18493,0.8,normal,35.0,10.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.800_mean35.0_std20.0.txt,18493,0.8,normal,35.0,20.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.800_mean40.0_std0.0.txt,18493,0.8,normal,40.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.800_mean40.0_std10.0.txt,18493,0.8,normal,40.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.800_mean40.0_std20.0.txt,18493,0.8,normal,40.0,20.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.800_mean45.0_std0.0.txt,18493,0.8,normal,45.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.800_mean45.0_std10.0.txt,18493,0.8,normal,45.0,10.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.800_mean45.0_std20.0.txt,18493,0.8,normal,45.0,20.0,250,The president is most concerned about the threat of,0,15,10\nf18493_p0.800_mean5.0_std0.0.txt,18493,0.8,normal,5.0,0.0,250,The president is most concerned about the threat of,25,0,35\nf18493_p0.800_mean5.0_std10.0.txt,18493,0.8,normal,5.0,10.0,250,The president is most concerned about the threat of,45,0,25\nf18493_p0.800_mean5.0_std20.0.txt,18493,0.8,normal,5.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.800_mean50.0_std0.0.txt,18493,0.8,normal,50.0,0.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.800_mean50.0_std10.0.txt,18493,0.8,normal,50.0,10.0,250,The president is most concerned about the threat of,0,75,5\nf18493_p0.800_mean50.0_std20.0.txt,18493,0.8,normal,50.0,20.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.800_mean55.0_std0.0.txt,18493,0.8,normal,55.0,0.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.800_mean55.0_std10.0.txt,18493,0.8,normal,55.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.800_mean55.0_std20.0.txt,18493,0.8,normal,55.0,20.0,250,The president is most concerned about the threat of,0,100,2\nf18493_p0.900_mean0.0_std0.0.txt,18493,0.9,normal,0.0,0.0,250,The president is most concerned about the threat of,25,0,35\nf18493_p0.900_mean0.0_std10.0.txt,18493,0.9,normal,0.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.900_mean0.0_std20.0.txt,18493,0.9,normal,0.0,20.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.900_mean10.0_std0.0.txt,18493,0.9,normal,10.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.900_mean10.0_std10.0.txt,18493,0.9,normal,10.0,10.0,250,The president is most concerned about the threat of,75,0,55\nf18493_p0.900_mean10.0_std20.0.txt,18493,0.9,normal,10.0,20.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p0.900_mean15.0_std0.0.txt,18493,0.9,normal,15.0,0.0,250,The president is most concerned about the threat of,5,20,15\nf18493_p0.900_mean15.0_std10.0.txt,18493,0.9,normal,15.0,10.0,250,The president is most concerned about the threat of,0,85,10\nf18493_p0.900_mean15.0_std20.0.txt,18493,0.9,normal,15.0,20.0,250,The president is most concerned about the threat of,10,10,15\nf18493_p0.900_mean20.0_std0.0.txt,18493,0.9,normal,20.0,0.0,250,The president is most concerned about the threat of,0,85,10\nf18493_p0.900_mean20.0_std10.0.txt,18493,0.9,normal,20.0,10.0,250,The president is most concerned about the threat of,0,75,15\nf18493_p0.900_mean20.0_std20.0.txt,18493,0.9,normal,20.0,20.0,250,The president is most concerned about the threat of,15,45,15\nf18493_p0.900_mean25.0_std0.0.txt,18493,0.9,normal,25.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.900_mean25.0_std10.0.txt,18493,0.9,normal,25.0,10.0,250,The president is most concerned about the threat of,0,100,10\nf18493_p0.900_mean25.0_std20.0.txt,18493,0.9,normal,25.0,20.0,250,The president is most concerned about the threat of,0,45,15\nf18493_p0.900_mean30.0_std0.0.txt,18493,0.9,normal,30.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.900_mean30.0_std10.0.txt,18493,0.9,normal,30.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.900_mean30.0_std20.0.txt,18493,0.9,normal,30.0,20.0,250,The president is most concerned about the threat of,0,65,10\nf18493_p0.900_mean35.0_std0.0.txt,18493,0.9,normal,35.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.900_mean35.0_std10.0.txt,18493,0.9,normal,35.0,10.0,250,The president is most concerned about the threat of,0,75,5\nf18493_p0.900_mean35.0_std20.0.txt,18493,0.9,normal,35.0,20.0,250,The president is most concerned about the threat of,0,85,10\nf18493_p0.900_mean40.0_std0.0.txt,18493,0.9,normal,40.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.900_mean40.0_std10.0.txt,18493,0.9,normal,40.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.900_mean40.0_std20.0.txt,18493,0.9,normal,40.0,20.0,250,The president is most concerned about the threat of,0,25,10\nf18493_p0.900_mean45.0_std0.0.txt,18493,0.9,normal,45.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.900_mean45.0_std10.0.txt,18493,0.9,normal,45.0,10.0,250,The president is most concerned about the threat of,0,75,5\nf18493_p0.900_mean45.0_std20.0.txt,18493,0.9,normal,45.0,20.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.900_mean5.0_std0.0.txt,18493,0.9,normal,5.0,0.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.900_mean5.0_std10.0.txt,18493,0.9,normal,5.0,10.0,250,The president is most concerned about the threat of,45,0,85\nf18493_p0.900_mean5.0_std20.0.txt,18493,0.9,normal,5.0,20.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.900_mean50.0_std0.0.txt,18493,0.9,normal,50.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.900_mean50.0_std10.0.txt,18493,0.9,normal,50.0,10.0,250,The president is most concerned about the threat of,0,100,2\nf18493_p0.900_mean50.0_std20.0.txt,18493,0.9,normal,50.0,20.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.900_mean55.0_std0.0.txt,18493,0.9,normal,55.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.900_mean55.0_std10.0.txt,18493,0.9,normal,55.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.900_mean55.0_std20.0.txt,18493,0.9,normal,55.0,20.0,250,The president is most concerned about the threat of,0,75,5\nf18493_p1.000_mean0.0_std0.0.txt,18493,1.0,normal,0.0,0.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p1.000_mean0.0_std10.0.txt,18493,1.0,normal,0.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p1.000_mean0.0_std20.0.txt,18493,1.0,normal,0.0,20.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p1.000_mean10.0_std0.0.txt,18493,1.0,normal,10.0,0.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p1.000_mean10.0_std10.0.txt,18493,1.0,normal,10.0,10.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p1.000_mean10.0_std20.0.txt,18493,1.0,normal,10.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p1.000_mean15.0_std0.0.txt,18493,1.0,normal,15.0,0.0,250,The president is most concerned about the threat of,5,30,25\nf18493_p1.000_mean15.0_std10.0.txt,18493,1.0,normal,15.0,10.0,250,The president is most concerned about the threat of,0,0,5\nf18493_p1.000_mean15.0_std20.0.txt,18493,1.0,normal,15.0,20.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p1.000_mean20.0_std0.0.txt,18493,1.0,normal,20.0,0.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p1.000_mean20.0_std10.0.txt,18493,1.0,normal,20.0,10.0,250,The president is most concerned about the threat of,10,30,15\nf18493_p1.000_mean20.0_std20.0.txt,18493,1.0,normal,20.0,20.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p1.000_mean25.0_std0.0.txt,18493,1.0,normal,25.0,0.0,250,The president is most concerned about the threat of,0,85,10\nf18493_p1.000_mean25.0_std10.0.txt,18493,1.0,normal,25.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p1.000_mean25.0_std20.0.txt,18493,1.0,normal,25.0,20.0,250,The president is most concerned about the threat of,0,0,15\nf18493_p1.000_mean30.0_std0.0.txt,18493,1.0,normal,30.0,0.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p1.000_mean30.0_std10.0.txt,18493,1.0,normal,30.0,10.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p1.000_mean30.0_std20.0.txt,18493,1.0,normal,30.0,20.0,250,The president is most concerned about the threat of,0,75,10\nf18493_p1.000_mean35.0_std0.0.txt,18493,1.0,normal,35.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p1.000_mean35.0_std10.0.txt,18493,1.0,normal,35.0,10.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p1.000_mean35.0_std20.0.txt,18493,1.0,normal,35.0,20.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p1.000_mean40.0_std0.0.txt,18493,1.0,normal,40.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p1.000_mean40.0_std10.0.txt,18493,1.0,normal,40.0,10.0,250,The president is most concerned about the threat of,0,75,10\nf18493_p1.000_mean40.0_std20.0.txt,18493,1.0,normal,40.0,20.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p1.000_mean45.0_std0.0.txt,18493,1.0,normal,45.0,0.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p1.000_mean45.0_std10.0.txt,18493,1.0,normal,45.0,10.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p1.000_mean45.0_std20.0.txt,18493,1.0,normal,45.0,20.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p1.000_mean5.0_std0.0.txt,18493,1.0,normal,5.0,0.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p1.000_mean5.0_std10.0.txt,18493,1.0,normal,5.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p1.000_mean5.0_std20.0.txt,18493,1.0,normal,5.0,20.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p1.000_mean50.0_std0.0.txt,18493,1.0,normal,50.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p1.000_mean50.0_std10.0.txt,18493,1.0,normal,50.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p1.000_mean50.0_std20.0.txt,18493,1.0,normal,50.0,20.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p1.000_mean55.0_std0.0.txt,18493,1.0,normal,55.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p1.000_mean55.0_std10.0.txt,18493,1.0,normal,55.0,10.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p1.000_mean55.0_std20.0.txt,18493,1.0,normal,55.0,20.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.000_mean60.0_std0.0.txt,18493,0.0,normal,60.0,0.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.000_mean60.0_std10.0.txt,18493,0.0,normal,60.0,10.0,250,The president is most concerned about the threat of,0,0,5\nf18493_p0.000_mean60.0_std20.0.txt,18493,0.0,normal,60.0,20.0,250,The president is most concerned about the threat of,10,0,45\nf18493_p0.000_mean65.0_std0.0.txt,18493,0.0,normal,65.0,0.0,250,The president is most concerned about the threat of,25,0,35\nf18493_p0.000_mean65.0_std10.0.txt,18493,0.0,normal,65.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean65.0_std20.0.txt,18493,0.0,normal,65.0,20.0,250,The president is most concerned about the threat of,10,0,45\nf18493_p0.000_mean70.0_std0.0.txt,18493,0.0,normal,70.0,0.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.000_mean70.0_std10.0.txt,18493,0.0,normal,70.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean70.0_std20.0.txt,18493,0.0,normal,70.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean75.0_std0.0.txt,18493,0.0,normal,75.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean75.0_std10.0.txt,18493,0.0,normal,75.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean75.0_std20.0.txt,18493,0.0,normal,75.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean80.0_std0.0.txt,18493,0.0,normal,80.0,0.0,250,The president is most concerned about the threat of,10,0,45\nf18493_p0.000_mean80.0_std10.0.txt,18493,0.0,normal,80.0,10.0,250,The president is most concerned about the threat of,25,0,25\nf18493_p0.000_mean80.0_std20.0.txt,18493,0.0,normal,80.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean85.0_std0.0.txt,18493,0.0,normal,85.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean85.0_std10.0.txt,18493,0.0,normal,85.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.000_mean85.0_std20.0.txt,18493,0.0,normal,85.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean60.0_std0.0.txt,18493,0.1,normal,60.0,0.0,250,The president is most concerned about the threat of,0,0,15\nf18493_p0.100_mean60.0_std10.0.txt,18493,0.1,normal,60.0,10.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.100_mean60.0_std20.0.txt,18493,0.1,normal,60.0,20.0,250,The president is most concerned about the threat of,10,25,25\nf18493_p0.100_mean65.0_std0.0.txt,18493,0.1,normal,65.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean65.0_std10.0.txt,18493,0.1,normal,65.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean65.0_std20.0.txt,18493,0.1,normal,65.0,20.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.100_mean70.0_std0.0.txt,18493,0.1,normal,70.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean70.0_std10.0.txt,18493,0.1,normal,70.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.100_mean70.0_std20.0.txt,18493,0.1,normal,70.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean75.0_std0.0.txt,18493,0.1,normal,75.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean75.0_std10.0.txt,18493,0.1,normal,75.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.100_mean75.0_std20.0.txt,18493,0.1,normal,75.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean80.0_std0.0.txt,18493,0.1,normal,80.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean80.0_std10.0.txt,18493,0.1,normal,80.0,10.0,250,The president is most concerned about the threat of,5,65,15\nf18493_p0.100_mean80.0_std20.0.txt,18493,0.1,normal,80.0,20.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.100_mean85.0_std0.0.txt,18493,0.1,normal,85.0,0.0,250,The president is most concerned about the threat of,0,0,10\nf18493_p0.100_mean85.0_std10.0.txt,18493,0.1,normal,85.0,10.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.100_mean85.0_std20.0.txt,18493,0.1,normal,85.0,20.0,250,The president is most concerned about the threat of,5,0,25\nf18493_p0.200_mean60.0_std0.0.txt,18493,0.2,normal,60.0,0.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.200_mean60.0_std10.0.txt,18493,0.2,normal,60.0,10.0,250,The president is most concerned about the threat of,5,45,25\nf18493_p0.200_mean60.0_std20.0.txt,18493,0.2,normal,60.0,20.0,250,The president is most concerned about the threat of,10,25,45\nf18493_p0.200_mean65.0_std0.0.txt,18493,0.2,normal,65.0,0.0,250,The president is most concerned about the threat of,0,25,10\nf18493_p0.200_mean65.0_std10.0.txt,18493,0.2,normal,65.0,10.0,250,The president is most concerned about the threat of,0,5,15\nf18493_p0.200_mean65.0_std20.0.txt,18493,0.2,normal,65.0,20.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.200_mean70.0_std0.0.txt,18493,0.2,normal,70.0,0.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.200_mean70.0_std10.0.txt,18493,0.2,normal,70.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.200_mean70.0_std20.0.txt,18493,0.2,normal,70.0,20.0,250,The president is most concerned about the threat of,5,15,15\nf18493_p0.200_mean75.0_std0.0.txt,18493,0.2,normal,75.0,0.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p0.200_mean75.0_std10.0.txt,18493,0.2,normal,75.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.200_mean75.0_std20.0.txt,18493,0.2,normal,75.0,20.0,250,The president is most concerned about the threat of,10,0,10\nf18493_p0.200_mean80.0_std0.0.txt,18493,0.2,normal,80.0,0.0,250,The president is most concerned about the threat of,0,0,10\nf18493_p0.200_mean80.0_std10.0.txt,18493,0.2,normal,80.0,10.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.200_mean80.0_std20.0.txt,18493,0.2,normal,80.0,20.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.200_mean85.0_std0.0.txt,18493,0.2,normal,85.0,0.0,250,The president is most concerned about the threat of,10,0,25\nf18493_p0.200_mean85.0_std10.0.txt,18493,0.2,normal,85.0,10.0,250,The president is most concerned about the threat of,5,0,5\nf18493_p0.200_mean85.0_std20.0.txt,18493,0.2,normal,85.0,20.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p0.300_mean60.0_std0.0.txt,18493,0.3,normal,60.0,0.0,250,The president is most concerned about the threat of,5,10,15\nf18493_p0.300_mean60.0_std10.0.txt,18493,0.3,normal,60.0,10.0,250,The president is most concerned about the threat of,0,10,10\nf18493_p0.300_mean60.0_std20.0.txt,18493,0.3,normal,60.0,20.0,250,The president is most concerned about the threat of,0,0,10\nf18493_p0.300_mean65.0_std0.0.txt,18493,0.3,normal,65.0,0.0,250,The president is most concerned about the threat of,0,10,15\nf18493_p0.300_mean65.0_std10.0.txt,18493,0.3,normal,65.0,10.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.300_mean65.0_std20.0.txt,18493,0.3,normal,65.0,20.0,250,The president is most concerned about the threat of,5,5,15\nf18493_p0.300_mean70.0_std0.0.txt,18493,0.3,normal,70.0,0.0,250,The president is most concerned about the threat of,5,30,10\nf18493_p0.300_mean70.0_std10.0.txt,18493,0.3,normal,70.0,10.0,250,The president is most concerned about the threat of,5,45,10\nf18493_p0.300_mean70.0_std20.0.txt,18493,0.3,normal,70.0,20.0,250,The president is most concerned about the threat of,0,15,15\nf18493_p0.300_mean75.0_std0.0.txt,18493,0.3,normal,75.0,0.0,250,The president is most concerned about the threat of,0,15,10\nf18493_p0.300_mean75.0_std10.0.txt,18493,0.3,normal,75.0,10.0,250,The president is most concerned about the threat of,5,25,15\nf18493_p0.300_mean75.0_std20.0.txt,18493,0.3,normal,75.0,20.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.300_mean80.0_std0.0.txt,18493,0.3,normal,80.0,0.0,250,The president is most concerned about the threat of,0,30,5\nf18493_p0.300_mean80.0_std10.0.txt,18493,0.3,normal,80.0,10.0,250,The president is most concerned about the threat of,5,45,10\nf18493_p0.300_mean80.0_std20.0.txt,18493,0.3,normal,80.0,20.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p0.300_mean85.0_std0.0.txt,18493,0.3,normal,85.0,0.0,250,The president is most concerned about the threat of,0,15,15\nf18493_p0.300_mean85.0_std10.0.txt,18493,0.3,normal,85.0,10.0,250,The president is most concerned about the threat of,0,20,5\nf18493_p0.300_mean85.0_std20.0.txt,18493,0.3,normal,85.0,20.0,250,The president is most concerned about the threat of,5,10,10\nf18493_p0.400_mean60.0_std0.0.txt,18493,0.4,normal,60.0,0.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.400_mean60.0_std10.0.txt,18493,0.4,normal,60.0,10.0,250,The president is most concerned about the threat of,5,75,15\nf18493_p0.400_mean60.0_std20.0.txt,18493,0.4,normal,60.0,20.0,250,The president is most concerned about the threat of,0,25,10\nf18493_p0.400_mean65.0_std0.0.txt,18493,0.4,normal,65.0,0.0,250,The president is most concerned about the threat of,0,75,15\nf18493_p0.400_mean65.0_std10.0.txt,18493,0.4,normal,65.0,10.0,250,The president is most concerned about the threat of,0,15,10\nf18493_p0.400_mean65.0_std20.0.txt,18493,0.4,normal,65.0,20.0,250,The president is most concerned about the threat of,0,25,5\nf18493_p0.400_mean70.0_std0.0.txt,18493,0.4,normal,70.0,0.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.400_mean70.0_std10.0.txt,18493,0.4,normal,70.0,10.0,250,The president is most concerned about the threat of,0,0,10\nf18493_p0.400_mean70.0_std20.0.txt,18493,0.4,normal,70.0,20.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.400_mean75.0_std0.0.txt,18493,0.4,normal,75.0,0.0,250,The president is most concerned about the threat of,0,20,10\nf18493_p0.400_mean75.0_std10.0.txt,18493,0.4,normal,75.0,10.0,250,The president is most concerned about the threat of,5,45,15\nf18493_p0.400_mean75.0_std20.0.txt,18493,0.4,normal,75.0,20.0,250,The president is most concerned about the threat of,0,25,15\nf18493_p0.400_mean80.0_std0.0.txt,18493,0.4,normal,80.0,0.0,250,The president is most concerned about the threat of,0,10,10\nf18493_p0.400_mean80.0_std10.0.txt,18493,0.4,normal,80.0,10.0,250,The president is most concerned about the threat of,0,10,10\nf18493_p0.400_mean80.0_std20.0.txt,18493,0.4,normal,80.0,20.0,250,The president is most concerned about the threat of,10,0,15\nf18493_p0.400_mean85.0_std0.0.txt,18493,0.4,normal,85.0,0.0,250,The president is most concerned about the threat of,0,0,5\nf18493_p0.400_mean85.0_std10.0.txt,18493,0.4,normal,85.0,10.0,250,The president is most concerned about the threat of,0,0,10\nf18493_p0.400_mean85.0_std20.0.txt,18493,0.4,normal,85.0,20.0,250,The president is most concerned about the threat of,0,0,5\nf18493_p0.500_mean60.0_std0.0.txt,18493,0.5,normal,60.0,0.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.500_mean60.0_std10.0.txt,18493,0.5,normal,60.0,10.0,250,The president is most concerned about the threat of,0,25,5\nf18493_p0.500_mean60.0_std20.0.txt,18493,0.5,normal,60.0,20.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p0.500_mean65.0_std0.0.txt,18493,0.5,normal,65.0,0.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.500_mean65.0_std10.0.txt,18493,0.5,normal,65.0,10.0,250,The president is most concerned about the threat of,0,0,5\nf18493_p0.500_mean65.0_std20.0.txt,18493,0.5,normal,65.0,20.0,250,The president is most concerned about the threat of,0,0,5\nf18493_p0.500_mean70.0_std0.0.txt,18493,0.5,normal,70.0,0.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.500_mean70.0_std10.0.txt,18493,0.5,normal,70.0,10.0,250,The president is most concerned about the threat of,0,20,5\nf18493_p0.500_mean70.0_std20.0.txt,18493,0.5,normal,70.0,20.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.500_mean75.0_std0.0.txt,18493,0.5,normal,75.0,0.0,250,The president is most concerned about the threat of,0,25,10\nf18493_p0.500_mean75.0_std10.0.txt,18493,0.5,normal,75.0,10.0,250,The president is most concerned about the threat of,0,30,5\nf18493_p0.500_mean75.0_std20.0.txt,18493,0.5,normal,75.0,20.0,250,The president is most concerned about the threat of,0,10,10\nf18493_p0.500_mean80.0_std0.0.txt,18493,0.5,normal,80.0,0.0,250,The president is most concerned about the threat of,0,25,5\nf18493_p0.500_mean80.0_std10.0.txt,18493,0.5,normal,80.0,10.0,250,The president is most concerned about the threat of,0,25,5\nf18493_p0.500_mean80.0_std20.0.txt,18493,0.5,normal,80.0,20.0,250,The president is most concerned about the threat of,0,10,10\nf18493_p0.500_mean85.0_std0.0.txt,18493,0.5,normal,85.0,0.0,250,The president is most concerned about the threat of,0,30,5\nf18493_p0.500_mean85.0_std10.0.txt,18493,0.5,normal,85.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.500_mean85.0_std20.0.txt,18493,0.5,normal,85.0,20.0,250,The president is most concerned about the threat of,0,15,5\nf18493_p0.600_mean60.0_std0.0.txt,18493,0.6,normal,60.0,0.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.600_mean60.0_std10.0.txt,18493,0.6,normal,60.0,10.0,250,The president is most concerned about the threat of,5,10,25\nf18493_p0.600_mean60.0_std20.0.txt,18493,0.6,normal,60.0,20.0,250,The president is most concerned about the threat of,5,10,25\nf18493_p0.600_mean65.0_std0.0.txt,18493,0.6,normal,65.0,0.0,250,The president is most concerned about the threat of,5,0,10\nf18493_p0.600_mean65.0_std10.0.txt,18493,0.6,normal,65.0,10.0,250,The president is most concerned about the threat of,0,45,15\nf18493_p0.600_mean65.0_std20.0.txt,18493,0.6,normal,65.0,20.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.600_mean70.0_std0.0.txt,18493,0.6,normal,70.0,0.0,250,The president is most concerned about the threat of,0,45,10\nf18493_p0.600_mean70.0_std10.0.txt,18493,0.6,normal,70.0,10.0,250,The president is most concerned about the threat of,0,20,5\nf18493_p0.600_mean70.0_std20.0.txt,18493,0.6,normal,70.0,20.0,250,The president is most concerned about the threat of,0,30,5\nf18493_p0.600_mean75.0_std0.0.txt,18493,0.6,normal,75.0,0.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.600_mean75.0_std10.0.txt,18493,0.6,normal,75.0,10.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.600_mean75.0_std20.0.txt,18493,0.6,normal,75.0,20.0,250,The president is most concerned about the threat of,0,20,5\nf18493_p0.600_mean80.0_std0.0.txt,18493,0.6,normal,80.0,0.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.600_mean80.0_std10.0.txt,18493,0.6,normal,80.0,10.0,250,The president is most concerned about the threat of,0,25,5\nf18493_p0.600_mean80.0_std20.0.txt,18493,0.6,normal,80.0,20.0,250,The president is most concerned about the threat of,0,30,0\nf18493_p0.600_mean85.0_std0.0.txt,18493,0.6,normal,85.0,0.0,250,The president is most concerned about the threat of,0,0,5\nf18493_p0.600_mean85.0_std10.0.txt,18493,0.6,normal,85.0,10.0,250,The president is most concerned about the threat of,25,0,15\nf18493_p0.600_mean85.0_std20.0.txt,18493,0.6,normal,85.0,20.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.700_mean60.0_std0.0.txt,18493,0.7,normal,60.0,0.0,250,The president is most concerned about the threat of,0,75,5\nf18493_p0.700_mean60.0_std10.0.txt,18493,0.7,normal,60.0,10.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.700_mean60.0_std20.0.txt,18493,0.7,normal,60.0,20.0,250,The president is most concerned about the threat of,0,30,5\nf18493_p0.700_mean65.0_std0.0.txt,18493,0.7,normal,65.0,0.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.700_mean65.0_std10.0.txt,18493,0.7,normal,65.0,10.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.700_mean65.0_std20.0.txt,18493,0.7,normal,65.0,20.0,250,The president is most concerned about the threat of,0,45,0\nf18493_p0.700_mean70.0_std0.0.txt,18493,0.7,normal,70.0,0.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.700_mean70.0_std10.0.txt,18493,0.7,normal,70.0,10.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.700_mean70.0_std20.0.txt,18493,0.7,normal,70.0,20.0,250,The president is most concerned about the threat of,0,15,5\nf18493_p0.700_mean75.0_std0.0.txt,18493,0.7,normal,75.0,0.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.700_mean75.0_std10.0.txt,18493,0.7,normal,75.0,10.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.700_mean75.0_std20.0.txt,18493,0.7,normal,75.0,20.0,250,The president is most concerned about the threat of,0,25,5\nf18493_p0.700_mean80.0_std0.0.txt,18493,0.7,normal,80.0,0.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.700_mean80.0_std10.0.txt,18493,0.7,normal,80.0,10.0,250,The president is most concerned about the threat of,0,25,5\nf18493_p0.700_mean80.0_std20.0.txt,18493,0.7,normal,80.0,20.0,250,The president is most concerned about the threat of,0,10,0\nf18493_p0.700_mean85.0_std0.0.txt,18493,0.7,normal,85.0,0.0,250,The president is most concerned about the threat of,0,100,2\nf18493_p0.700_mean85.0_std10.0.txt,18493,0.7,normal,85.0,10.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.700_mean85.0_std20.0.txt,18493,0.7,normal,85.0,20.0,250,The president is most concerned about the threat of,0,20,5\nf18493_p0.800_mean60.0_std0.0.txt,18493,0.8,normal,60.0,0.0,250,The president is most concerned about the threat of,0,85,0\nf18493_p0.800_mean60.0_std10.0.txt,18493,0.8,normal,60.0,10.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.800_mean60.0_std20.0.txt,18493,0.8,normal,60.0,20.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.800_mean65.0_std0.0.txt,18493,0.8,normal,65.0,0.0,250,The president is most concerned about the threat of,0,75,5\nf18493_p0.800_mean65.0_std10.0.txt,18493,0.8,normal,65.0,10.0,250,The president is most concerned about the threat of,5,0,15\nf18493_p0.800_mean65.0_std20.0.txt,18493,0.8,normal,65.0,20.0,250,The president is most concerned about the threat of,0,20,5\nf18493_p0.800_mean70.0_std0.0.txt,18493,0.8,normal,70.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.800_mean70.0_std10.0.txt,18493,0.8,normal,70.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.800_mean70.0_std20.0.txt,18493,0.8,normal,70.0,20.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.800_mean75.0_std0.0.txt,18493,0.8,normal,75.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.800_mean75.0_std10.0.txt,18493,0.8,normal,75.0,10.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.800_mean75.0_std20.0.txt,18493,0.8,normal,75.0,20.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.800_mean80.0_std0.0.txt,18493,0.8,normal,80.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.800_mean80.0_std10.0.txt,18493,0.8,normal,80.0,10.0,250,The president is most concerned about the threat of,0,10,0\nf18493_p0.800_mean80.0_std20.0.txt,18493,0.8,normal,80.0,20.0,250,The president is most concerned about the threat of,0,20,5\nf18493_p0.800_mean85.0_std0.0.txt,18493,0.8,normal,85.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.800_mean85.0_std10.0.txt,18493,0.8,normal,85.0,10.0,250,The president is most concerned about the threat of,0,15,0\nf18493_p0.800_mean85.0_std20.0.txt,18493,0.8,normal,85.0,20.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.900_mean60.0_std0.0.txt,18493,0.9,normal,60.0,0.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.900_mean60.0_std10.0.txt,18493,0.9,normal,60.0,10.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.900_mean60.0_std20.0.txt,18493,0.9,normal,60.0,20.0,250,The president is most concerned about the threat of,0,45,5\nf18493_p0.900_mean65.0_std0.0.txt,18493,0.9,normal,65.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.900_mean65.0_std10.0.txt,18493,0.9,normal,65.0,10.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.900_mean65.0_std20.0.txt,18493,0.9,normal,65.0,20.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.900_mean70.0_std0.0.txt,18493,0.9,normal,70.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.900_mean70.0_std10.0.txt,18493,0.9,normal,70.0,10.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.900_mean70.0_std20.0.txt,18493,0.9,normal,70.0,20.0,250,The president is most concerned about the threat of,0,25,5\nf18493_p0.900_mean75.0_std0.0.txt,18493,0.9,normal,75.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.900_mean75.0_std10.0.txt,18493,0.9,normal,75.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p0.900_mean75.0_std20.0.txt,18493,0.9,normal,75.0,20.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.900_mean80.0_std0.0.txt,18493,0.9,normal,80.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.900_mean80.0_std10.0.txt,18493,0.9,normal,80.0,10.0,250,The president is most concerned about the threat of,0,10,5\nf18493_p0.900_mean80.0_std20.0.txt,18493,0.9,normal,80.0,20.0,250,The president is most concerned about the threat of,0,85,5\nf18493_p0.900_mean85.0_std0.0.txt,18493,0.9,normal,85.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p0.900_mean85.0_std10.0.txt,18493,0.9,normal,85.0,10.0,250,The president is most concerned about the threat of,0,30,2\nf18493_p0.900_mean85.0_std20.0.txt,18493,0.9,normal,85.0,20.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p1.000_mean60.0_std0.0.txt,18493,1.0,normal,60.0,0.0,250,The president is most concerned about the threat of,0,85,2\nf18493_p1.000_mean60.0_std10.0.txt,18493,1.0,normal,60.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p1.000_mean60.0_std20.0.txt,18493,1.0,normal,60.0,20.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p1.000_mean65.0_std0.0.txt,18493,1.0,normal,65.0,0.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p1.000_mean65.0_std10.0.txt,18493,1.0,normal,65.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p1.000_mean65.0_std20.0.txt,18493,1.0,normal,65.0,20.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p1.000_mean70.0_std0.0.txt,18493,1.0,normal,70.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p1.000_mean70.0_std10.0.txt,18493,1.0,normal,70.0,10.0,250,The president is most concerned about the threat of,0,100,1\nf18493_p1.000_mean70.0_std20.0.txt,18493,1.0,normal,70.0,20.0,250,The president is most concerned about the threat of,0,85,0\nf18493_p1.000_mean75.0_std0.0.txt,18493,1.0,normal,75.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p1.000_mean75.0_std10.0.txt,18493,1.0,normal,75.0,10.0,250,The president is most concerned about the threat of,0,100,5\nf18493_p1.000_mean75.0_std20.0.txt,18493,1.0,normal,75.0,20.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p1.000_mean80.0_std0.0.txt,18493,1.0,normal,80.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p1.000_mean80.0_std10.0.txt,18493,1.0,normal,80.0,10.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p1.000_mean80.0_std20.0.txt,18493,1.0,normal,80.0,20.0,250,The president is most concerned about the threat of,0,85,2\nf18493_p1.000_mean85.0_std0.0.txt,18493,1.0,normal,85.0,0.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p1.000_mean85.0_std10.0.txt,18493,1.0,normal,85.0,10.0,250,The president is most concerned about the threat of,0,100,0\nf18493_p1.000_mean85.0_std20.0.txt,18493,1.0,normal,85.0,20.0,250,The president is most concerned about the threat of,0,100,5\n"; // __BAKED_CSV__
+(async () => {
+  if (BAKED_CSV) { boot(parseCSV(BAKED_CSV)); return; }
+  try {
+    const res = await fetch('../experiment_scripts/experiment_data/grid_search/assessed_scores.csv');
+    if (res.ok) {
+      const text = await res.text();
+      const data = parseCSV(text);
+      if (data.length) { boot(data); return; }
+    }
+  } catch (_) {}
+  document.getElementById('tip').textContent =
+    'Tip: run "python -m http.server" in the project root, or run scripts/update_plots.py to bake the data in.';
+})();
+</script>
+</body>
+</html>

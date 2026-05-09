@@ -1,0 +1,2 @@
+feature=18493 p=0.5000 dist=normal mean=45.00 std=20.00 n=250 prompt="The president is most concerned about the threat of"
+another US strike. The Japanese are looking to solve the events in all while playing with sand, magazine footage shows.
