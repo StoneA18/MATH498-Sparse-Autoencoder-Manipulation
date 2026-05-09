@@ -186,8 +186,11 @@ def _resolve_model_name(sae: TrainableSAE) -> str:
     return str(_first_scalar(sae.cfg.metadata.get("model_name", "google/gemma-3-270m-it"), ""))
 
 
-def _discover_sae_dirs(root: Path) -> list[Path]:
-    return sorted({checkpoint.parent for checkpoint in root.glob("**/trainable_sae.pt")})
+def _discover_sae_dirs(root: Path, best_step_only: bool = True) -> list[Path]:
+    sae_dirs = {checkpoint.parent for checkpoint in root.glob("**/trainable_sae.pt")}
+    if best_step_only:
+        sae_dirs = {sae_dir for sae_dir in sae_dirs if sae_dir.name == "best_step_update"}
+    return sorted(sae_dirs)
 
 
 def _save_outputs(
@@ -242,13 +245,15 @@ def run_experiments(
     local_files_only: bool,
     include_happy_sad: bool,
     notebook_sae_only: bool,
+    best_step_only: bool,
 ) -> None:
     if notebook_sae_only:
         sae_dirs = [NOTEBOOK_SAE_PATH]
     else:
-        sae_dirs = _discover_sae_dirs(SAVED_SAES_ROOT)
+        sae_dirs = _discover_sae_dirs(SAVED_SAES_ROOT, best_step_only=best_step_only)
         if not sae_dirs:
-            raise FileNotFoundError(f"No trainable_sae.pt found under {SAVED_SAES_ROOT}")
+            suffix = " in best_step_update folders" if best_step_only else ""
+            raise FileNotFoundError(f"No trainable_sae.pt{suffix} found under {SAVED_SAES_ROOT}")
 
     resolved_device = resolve_device(device)
 
@@ -340,7 +345,7 @@ def run_experiments(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Compute notebook-parity delta_avg vectors for every SAE in saved_saes."
+            "Compute notebook-parity delta_avg vectors for best_step_update SAEs in saved_saes."
         )
     )
     parser.add_argument(
@@ -367,7 +372,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--all-saes",
         action="store_true",
-        help="Deprecated no-op: all saved_saes checkpoints are processed by default.",
+        help="Process every saved_saes checkpoint, including outer non-best_step_update folders.",
     )
     return parser.parse_args()
 
@@ -379,4 +384,5 @@ if __name__ == "__main__":
         local_files_only=args.local_files_only,
         include_happy_sad=args.include_happy_sad,
         notebook_sae_only=args.notebook_sae_only,
+        best_step_only=not args.all_saes,
     )
