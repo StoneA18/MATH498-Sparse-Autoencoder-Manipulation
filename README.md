@@ -11,7 +11,7 @@ Built as part of MATH498 - Decoding GPT. Colorado School of Mines, Spring 2026.
 ## Project Writeup
 **Important:** This README is for those wishing to use the codebase that this repository contains. It is NOT a formal outline of our project and findings.
 
-We **highly** recommend that you instead start by looking at our [writeup](docs/final_writeup/html/writeup.html). It will explain nicely what we have done and what we have found. Then, come back here to play with our code.
+We **highly** recommend that you instead start by looking at our [writeup](https://stonea18.github.io/MATH498-Sparse-Autoencoder-Manipulation/docs/final_writeup/html/writeup.html). It will explain nicely what we have done and what we have found. Then, come back here to play with our code.
 
 This is especially recommended if your name is Michael, or you are otherwise interested in assessing our work.
 
