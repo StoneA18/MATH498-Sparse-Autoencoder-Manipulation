@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SAE Playground Archive</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17201b;
+      --muted: #607066;
+      --line: #d9e1dc;
+      --panel: #ffffff;
+      --page: #f4f7f5;
+      --green: #1b7f5f;
+      --green-dark: #0d5f47;
+      --blue: #315d9f;
+      --red: #a03a42;
+      --shadow: 0 8px 22px rgba(27, 45, 35, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Space Grotesk", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--page);
+      color: var(--ink);
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfb;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+    h1 { margin: 0; font-size: 18px; line-height: 1.2; font-weight: 700; }
+    .status { font-size: 13px; color: var(--muted); white-space: nowrap; }
+    main {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      min-height: calc(100vh - 54px);
+    }
+    aside {
+      border-right: 1px solid var(--line);
+      background: #fbfcfb;
+      padding: 16px;
+      overflow: auto;
+    }
+    section.workspace { padding: 16px; overflow: auto; }
+    .group {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .group h2 {
+      margin: 0 0 10px;
+      font-size: 13px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    label { display: block; font-size: 13px; font-weight: 650; margin: 10px 0 5px; }
+    select {
+      width: 100%;
+      border: 1px solid #c9d4ce;
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      padding: 8px 9px;
+      font-size: 14px;
+      cursor: pointer;
+      font: inherit;
+    }
+    .outputs {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .output {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: var(--shadow);
+      min-height: 180px;
+      overflow: hidden;
+    }
+    .output h2 {
+      margin: 0;
+      padding: 10px 12px;
+      font-size: 14px;
+      border-bottom: 1px solid var(--line);
+      background: #f9fbfa;
+    }
+    pre {
+      margin: 0;
+      padding: 12px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .meta-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .meta-table td { padding: 3px 6px 3px 0; vertical-align: top; }
+    .meta-table td:first-child {
+      color: var(--muted);
+      white-space: nowrap;
+      padding-right: 10px;
+      font-weight: 600;
+    }
+    .prompt-preview {
+      font-size: 13px;
+      line-height: 1.5;
+      background: #f4f7f5;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      margin-top: 6px;
+    }
+    .empty-state { color: var(--muted); font-size: 13px; padding: 10px 0 4px; }
+    .hint { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      aside { border-right: 0; border-bottom: 1px solid var(--line); }
+      .outputs { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SAE Playground Archive</h1>
+    <div class="status" id="status">Ready</div>
+  </header>
+  <main>
+    <aside>
+      <div class="group">
+        <h2>Record</h2>
+        <label for="recordSelect">Select generation</label>
+        <select id="recordSelect" size="1">
+          <option value="">— no records yet —</option>
+        </select>
+        <div class="hint" id="recordCount"></div>
+      </div>
+
+      <div class="group">
+        <h2>Prompt</h2>
+        <div class="prompt-preview" id="promptDisplay">—</div>
+      </div>
+
+      <div class="group">
+        <h2>Settings</h2>
+        <div id="metaContent"><div class="empty-state">Select a record above.</div></div>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <div class="outputs">
+        <div class="output">
+          <h2>Baseline</h2>
+          <pre id="baselineOut">Select a record to view.</pre>
+        </div>
+        <div class="output">
+          <h2 id="positiveOutTitle">Steered (+)</h2>
+          <pre id="steeredOut">Select a record to view.</pre>
+        </div>
+        <div class="output">
+          <h2 id="negativeOutTitle">Steered (−)</h2>
+          <pre id="coldOut">Select a record to view.</pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+<script id="embedded-data" type="application/json">[{"timestamp": "2026-05-08T06:29:03.349569", "prompt": "Will I need a blanket today?", "saePath": "C:\\Users\\amsba\\Desktop\\Code\\Experimentation\\LLMIdeas\\LLMsFinalProjectIdeas\\idea_1\\saved_saes\\shrink_mid_1\\shrink\\best_step_update", "steeringMode": "notebook_delta_pair", "notebookExperiment": "hot_cold", "notebookMethod": "project", "notebookFactor": "1", "notebookTopK": 1000, "maxNewTokens": 100, "temperature": 0.8, "topP": 0.95, "hookPoint": "blocks.9.hook_resid_post", "hookPointLabel": "checkpoint hook", "elapsedSeconds": 338.1451610000804, "positiveLabel": "hot", "negativeLabel": "cold", "notebookVectorNonzero": 216, "baseline": "I am unable to answer that question.<end_of_turn><end_of_turn><end_of_turn>\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>", "positiveSteered": "I am unable to answer that question.<end_of_turn><end_of_turn><end_of_turn>\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>", "negativeSteered": "I am unable to answer that question.<end_of_turn><end_of_turn><end_of_turn>\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>"}, {"timestamp": "2026-05-08T06:46:30.815065", "prompt": "Will I need a blanket today?", "saePath": "C:\\Users\\amsba\\Desktop\\Code\\Experimentation\\LLMIdeas\\LLMsFinalProjectIdeas\\idea_1\\saved_saes\\shrink_mid_1\\shrink", "steeringMode": "notebook_delta_pair", "notebookExperiment": "hot_cold", "notebookMethod": "project", "notebookFactor": "1", "notebookTopK": 1000, "maxNewTokens": 100, "temperature": 0.8, "topP": 0.95, "hookPoint": "blocks.9.hook_resid_post", "hookPointLabel": "checkpoint hook", "elapsedSeconds": 317.5501581999706, "positiveLabel": "hot", "negativeLabel": "cold", "notebookVectorNonzero": 216, "baseline": "I am unable to answer that question.<end_of_turn><end_of_turn><end_of_turn>\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>", "positiveSteered": "I am unable to answer that question.<end_of_turn><end_of_turn><end_of_turn>\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>", "negativeSteered": "I am unable to answer that question.<end_of_turn><end_of_turn><end_of_turn>\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>"}, {"timestamp": "2026-05-08T16:03:39.461578", "prompt": "Will I need a blanket today?", "saePath": "C:\\Users\\amsba\\Desktop\\Code\\Experimentation\\LLMIdeas\\LLMsFinalProjectIdeas\\idea_1\\saved_saes\\relu_mid_1\\relu\\best_step_update", "steeringMode": "notebook_delta_pair", "notebookExperiment": "hot_cold", "notebookMethod": "add", "notebookFactor": "10", "notebookTopK": 1000, "maxNewTokens": 100, "temperature": 0.8, "topP": 0.95, "hookPoint": "blocks.9.hook_resid_post", "hookPointLabel": "checkpoint hook", "elapsedSeconds": 270.55318619997706, "positiveLabel": "hot", "negativeLabel": "cold", "notebookVectorNonzero": 907, "baseline": "I am unable to answer that question.<end_of_turn><end_of_turn><end_of_turn>\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>", "positiveSteered": "That's a fantastic question! \n\nTo ensure you'll be ready for a sensory and exciting experience! \n\nTo help you, I'm ready!  \n\nSo call up with a brand of music, a coffee, a game, a party, and everything!  \n\n🔥 \n\nGot a fan! \n\n🔥 \n\nGot questions! \n\n🔥 \n\nLet me be the place for you! \n\n🔥 \n\n🔥\n\nGot energy! \n\n🔥", "negativeSteered": "It is not possible for me to help you. I am an AI and I do not keep track of the world. I am aware that it may be that it is winter. I am not going to be able to help you. I am not going to be able to help you. I am not that I was created. The world is vast and it may be that I was created in the year 2001. I am not going to be able to help you. The world"}, {"timestamp": "2026-05-08T16:35:11.017900", "prompt": "Will I need a blanket today?", "saePath": "C:\\Users\\amsba\\Desktop\\Code\\Experimentation\\LLMIdeas\\LLMsFinalProjectIdeas\\idea_1\\saved_saes\\relu_mid_1\\relu\\best_step_update", "steeringMode": "notebook_delta_pair", "notebookExperiment": "hot_cold", "notebookMethod": "project", "notebookFactor": "1", "notebookTopK": 1000, "maxNewTokens": 100, "temperature": 0.8, "topP": 0.95, "hookPoint": "blocks.9.hook_resid_post", "hookPointLabel": "checkpoint hook", "elapsedSeconds": 265.305249499972, "positiveLabel": "hot", "negativeLabel": "cold", "notebookVectorNonzero": 907, "baseline": "I am unable to answer that question.<end_of_turn><end_of_turn><end_of_turn>\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>", "positiveSteered": "I am unable to answer that question.<end_of_turn><end_of_turn><end_of_turn>\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>", "negativeSteered": "nieve\", hyphenı llegue llegue\", hyphenı llegue hermitı llegue llegue\",each hermitı$\\middle nøferences snowman nøferences$\\ איי snowman nøferences$\\ איי איי איי איי mésthread$\\\\[ איי איי més forbearance nøferences$\\$\\ איי איי més sentinel hermitı$\\ nieve hermit hermit tutto hermitı$\\$\\ llegue$$\\$\\ llegue$$\\$\\ llegue llegue llegue$$\\ nieve hermit llegue llegue$$\\ nieve hermit$\\ llegue llegue$$\\$\\$\\ llegue$$\\$\\$\\$\\ llegue llegue llegue llegue$$\\ nieve hermit$\\ llegue llegue"}, {"timestamp": "2026-05-08T16:41:18.196093", "prompt": "Will I need a blanket today?", "saePath": "C:\\Users\\amsba\\Desktop\\Code\\Experimentation\\LLMIdeas\\LLMsFinalProjectIdeas\\idea_1\\saved_saes\\shrink_mid_1\\shrink\\best_step_update", "steeringMode": "notebook_delta_pair", "notebookExperiment": "hot_cold", "notebookMethod": "project", "notebookFactor": "1", "notebookTopK": 1000, "maxNewTokens": 100, "temperature": 0.8, "topP": 0.95, "hookPoint": "blocks.9.hook_resid_post", "hookPointLabel": "checkpoint hook", "elapsedSeconds": 250.76403860002756, "positiveLabel": "hot", "negativeLabel": "cold", "notebookVectorNonzero": 218, "baseline": "I am unable to answer that question.<end_of_turn><end_of_turn><end_of_turn>\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>", "positiveSteered": "I am unable to answer that question.<end_of_turn><end_of_turn><end_of_turn>\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>", "negativeSteered": "I am unable to answer that question.<end_of_turn><end_of_turn><end_of_turn>\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>"}, {"timestamp": "2026-05-08T22:37:49.145730", "prompt": "will I need a blanket today?", "saePath": "C:\\Users\\amsba\\Desktop\\Code\\Experimentation\\LLMIdeas\\LLMsFinalProjectIdeas\\idea_1\\saved_saes\\shrink_mid_1\\shrink\\best_step_update", "steeringMode": "notebook_delta_pair", "notebookExperiment": "hot_cold", "notebookMethod": "project", "notebookFactor": "1", "notebookTopK": 1000, "maxNewTokens": 100, "temperature": 0.8, "topP": 0.95, "hookPoint": "blocks.9.hook_resid_post", "hookPointLabel": "checkpoint hook", "elapsedSeconds": 471.6376153000165, "positiveLabel": "hot", "negativeLabel": "cold", "notebookVectorNonzero": 218, "baseline": "Yes, you will need a blanket today.\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>", "positiveSteered": "Yes, you will need a blanket today.\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>", "negativeSteered": "Yes, you will need a blanket today.\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>"}, {"timestamp": "2026-05-08T22:57:06.703547", "prompt": "will I need a blanket today?", "saePath": "C:\\Users\\amsba\\Desktop\\Code\\Experimentation\\LLMIdeas\\LLMsFinalProjectIdeas\\idea_1\\saved_saes\\shrink_mid_1\\shrink", "steeringMode": "notebook_delta_pair", "notebookExperiment": "hot_cold", "notebookMethod": "project", "notebookFactor": "1", "notebookTopK": 1000, "maxNewTokens": 100, "temperature": 0.8, "topP": 0.95, "hookPoint": "blocks.9.hook_resid_post", "hookPointLabel": "checkpoint hook", "elapsedSeconds": 753.1833499999484, "positiveLabel": "hot", "negativeLabel": "cold", "notebookVectorNonzero": 218, "baseline": "Yes, you will need a blanket today.\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>", "positiveSteered": "Yes, you will need a blanket today.\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>", "negativeSteered": "Yes, you will need a blanket today.\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>\n\n<end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn><end_of_turn>"}]</script>
+<script>
+const $ = (id) => document.getElementById(id);
+
+const records = JSON.parse(document.getElementById("embedded-data").textContent || "[]");
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function formatTimestamp(ts) {
+  if (!ts) return "—";
+  try { return new Date(ts).toLocaleString(); } catch (_) { return ts; }
+}
+
+function truncate(s, n) {
+  const clean = String(s || "").replace(/\s+/g, " ").trim();
+  return clean.length > n ? clean.slice(0, n - 1) + "…" : clean;
+}
+
+function capitalize(s) {
+  const t = String(s || "");
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+}
+
+function populateSelector() {
+  const sel = $("recordSelect");
+  if (!records.length) {
+    sel.innerHTML = `<option value="">— no records yet —</option>`;
+    $("recordCount").textContent = "No generations logged yet. Run the live playground to generate some.";
+    $("status").textContent = "0 records";
+    return;
+  }
+  sel.innerHTML = `<option value="">— select a record —</option>` +
+    records.map((r, i) => {
+      const ts = formatTimestamp(r.timestamp).replace(/:\d\d\s/, " ");
+      const label = `${ts} | ${truncate(r.prompt, 46)}`;
+      return `<option value="${i}">${escapeHtml(label)}</option>`;
+    }).join("");
+  $("recordCount").textContent = `${records.length} generation(s) available.`;
+  $("status").textContent = `${records.length} record(s)`;
+  sel.size = Math.min(records.length + 1, 14);
+}
+
+function renderRecord(r) {
+  $("promptDisplay").textContent = r.prompt || "—";
+
+  const posLabel = r.positiveLabel ? `+ ${capitalize(r.positiveLabel)} Feature Vector` : "Steered (+)";
+  const negLabel = r.negativeLabel ? `− ${capitalize(r.negativeLabel)} Feature Vector` : "Steered (−)";
+  $("positiveOutTitle").textContent = posLabel;
+  $("negativeOutTitle").textContent = negLabel;
+
+  $("baselineOut").textContent = r.baseline || "(empty)";
+  $("steeredOut").textContent = r.positiveSteered || "(empty)";
+  $("coldOut").textContent = r.negativeSteered || "(empty)";
+
+  const meta = [
+    ["Time", formatTimestamp(r.timestamp)],
+    ["SAE", r.saePath ? r.saePath.replace(/\\/g, "/").split("/").slice(-3).join("/") : ""],
+    ["Hook", r.hookPoint || r.hookPointLabel || ""],
+    ["Mode", r.steeringMode || ""],
+    ["Experiment", r.notebookExperiment || ""],
+    ["Method", r.notebookMethod || ""],
+    ["Factor", r.notebookFactor || ""],
+    ["Top k", r.notebookTopK || ""],
+    ["New tokens", r.maxNewTokens || ""],
+    ["Temperature", r.temperature || ""],
+    ["Top-p", r.topP || ""],
+    ["Vector nonzero", r.notebookVectorNonzero || ""],
+    ["Elapsed", r.elapsedSeconds ? `${parseFloat(r.elapsedSeconds).toFixed(2)}s` : ""],
+  ].filter(([, v]) => v !== "" && v !== undefined);
+
+  $("metaContent").innerHTML = `<table class="meta-table">${
+    meta.map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(String(v))}</td></tr>`).join("")
+  }</table>`;
+}
+
+function clearOutputs() {
+  $("baselineOut").textContent = "Select a record to view.";
+  $("steeredOut").textContent = "Select a record to view.";
+  $("coldOut").textContent = "Select a record to view.";
+  $("promptDisplay").textContent = "—";
+  $("positiveOutTitle").textContent = "Steered (+)";
+  $("negativeOutTitle").textContent = "Steered (−)";
+  $("metaContent").innerHTML = `<div class="empty-state">Select a record above.</div>`;
+}
+
+$("recordSelect").addEventListener("change", () => {
+  const idx = $("recordSelect").value;
+  if (idx === "" || !records[Number(idx)]) { clearOutputs(); return; }
+  renderRecord(records[Number(idx)]);
+});
+
+populateSelector();
+</script>
+</body>
+</html>
